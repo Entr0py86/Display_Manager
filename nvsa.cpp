@@ -133,4 +133,20 @@ namespace Display_Manager
 			throw gcnew DisplayManager_Exception(state);
 		}
 	}
+
+	bool Surround_Manager::IsSurroundActive(System::String ^ filePath)
+	{
+		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
+
+		state = displayManager->IsSurroundActive(sFilePath.c_str());
+		if (state == DisplayManager_State::DM_SURROUND_ACTIVE)
+			return surroundEnabled = true;
+		else if (state == DisplayManager_State::DM_SURROUND_NOT_ACTIVE)
+			return surroundEnabled = false;
+		else
+		{
+			surroundEnabled = false;
+			throw gcnew DisplayManager_Exception(state);
+		}
+	}
 }

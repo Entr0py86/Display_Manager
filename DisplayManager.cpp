@@ -28,7 +28,7 @@ BOOL CALLBACK EnumWindowProc(_In_ HWND   hwnd, _In_ LPARAM lParam)
 
 DisplayManager::DisplayManager()
 {
-	memset(hPhysicalGpu, 0, sizeof(NvPhysicalGpuHandle) * NVAPI_MAX_PHYSICAL_GPUS);		
+	memset(hPhysicalGpu, 0, sizeof(NvPhysicalGpuHandle) * NVAPI_MAX_PHYSICAL_GPUS);
 }
 
 DisplayManager::~DisplayManager()
@@ -39,15 +39,15 @@ DisplayManager::~DisplayManager()
 	{
 		delete(pDisplayIds);
 	}
-	//Delete nomral setup variables
+	//Delete normal setup variables
 	if (nm_pathInfo != NULL)
 	{
 		FreePathInfo(nm_pathCount, nm_pathInfo);
-	}	
+	}
 	if (nm_gridTopologies != NULL)
 	{
 		delete nm_gridTopologies;
-	}	
+	}
 	//Delete surround setup variables
 	if (sr_pathInfo != NULL)
 	{
@@ -60,7 +60,7 @@ DisplayManager::~DisplayManager()
 }
 
 DisplayManager_State DisplayManager::LoadNvapi()
-{	
+{
 	DisplayManager_State ret;
 	NvAPI_Status result = NVAPI_OK;
 
@@ -69,21 +69,27 @@ DisplayManager_State DisplayManager::LoadNvapi()
 	{
 		return DisplayManager_State::DM_OK;
 	}
-	result = NvAPI_Initialize();
-	switch (result)
+	try
 	{
-	case NVAPI_OK:
-		ret = DisplayManager_State::DM_OK;
-		nvapiLibLoaded = true;
-		break;
-	case NVAPI_ERROR:
-		ret = DisplayManager_State::DM_ERROR;
-		nvapiLibLoaded = false;
-		break;
-	case NVAPI_LIBRARY_NOT_FOUND:
-		ret = DisplayManager_State::DM_LIB_NOT_FOUND;
-		nvapiLibLoaded = false;
-		break;
+		result = NvAPI_Initialize();
+		switch (result)
+		{
+		case NVAPI_OK:
+			ret = DisplayManager_State::DM_OK;
+			nvapiLibLoaded = true;
+			break;
+		case NVAPI_ERROR:
+			ret = DisplayManager_State::DM_ERROR;
+			nvapiLibLoaded = false;
+			break;
+		case NVAPI_LIBRARY_NOT_FOUND:
+			ret = DisplayManager_State::DM_LIB_NOT_FOUND;
+			nvapiLibLoaded = false;
+			break;
+		}
+	}
+	catch (...)
+	{
 	}
 	return ret;
 }
@@ -94,21 +100,25 @@ DisplayManager_State DisplayManager::UnLoadNvapi()
 
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_OK;
-
-	switch (NvAPI_Unload())
+	try
 	{
-	case NVAPI_OK:
-		nvapiLibLoaded = false;
-		ret = DisplayManager_State::DM_OK;
-		break;
-	case NVAPI_ERROR:
-		ret = DisplayManager_State::DM_ERROR;
-		break;
-	case NVAPI_API_IN_USE:
-		ret = DisplayManager_State::DM_ERROR;
-		break;
+		switch (NvAPI_Unload())
+		{
+		case NVAPI_OK:
+			nvapiLibLoaded = false;
+			ret = DisplayManager_State::DM_OK;
+			break;
+		case NVAPI_ERROR:
+			ret = DisplayManager_State::DM_ERROR;
+			break;
+		case NVAPI_API_IN_USE:
+			ret = DisplayManager_State::DM_ERROR;
+			break;
+		}
 	}
-		
+	catch (...)
+	{
+	}
 	return ret;
 }
 
@@ -199,7 +209,7 @@ DisplayManager_State DisplayManager::ApplySetup(const char* filePath)
 
 	if ((result = ReadFileToSetup(filePath, &pathCount, &pathInfo, &gridCount, &gridTopologies)) != DisplayManager_State::DM_OK)
 	{
-		FreePathInfo(nm_pathCount, nm_pathInfo);
+		FreePathInfo(pathCount, pathInfo);
 		return result;
 	}
 
@@ -224,7 +234,7 @@ DisplayManager_State DisplayManager::SaveCurrentNormalSetup()
 	{
 		return DisplayManager_State::DM_GET_GPU_ERROR;
 	}
-	
+
 	if ((result = GetDisplayPaths(&nm_pathCount, &nm_pathInfo)) != DisplayManager_State::DM_OK)
 	{
 		FreePathInfo(nm_pathCount, nm_pathInfo);
@@ -350,11 +360,50 @@ DisplayManager_State DisplayManager::IsSurroundActive()
 		return result;
 	}
 	
-	for(NvU32 i = 0; i < gridCount; i++)
+	for (NvU32 i = 0; i < gridCount; i++)
 	{
 		//If either is larger than 1 then two or more screens have been set into a surround setup
 		if (pGridTopos[i].columns > 1 || pGridTopos[i].rows > 1)
-			return DisplayManager_State::DM_SURROUND_ACTIVE; 
+			return DisplayManager_State::DM_SURROUND_ACTIVE; //In surround mode
+	}
+
+	//Not in surround
+	return DisplayManager_State::DM_SURROUND_NOT_ACTIVE;
+}
+
+DisplayManager_State DisplayManager::IsSurroundActive(const char* pFilePath)
+{
+	NvU32 gridCount = 0;
+	NV_MOSAIC_GRID_TOPO *pGridTopos = NULL;
+
+	NvU32 filePathCount = 0;
+	NV_DISPLAYCONFIG_PATH_INFO *filePathInfo = NULL;
+	NvU32 fileGridCount = 0;
+	NV_MOSAIC_GRID_TOPO *pFileGridTopos = NULL;
+
+	DisplayManager_State result = DisplayManager_State::DM_OK;
+
+	if (!nvapiLibLoaded)
+		return DisplayManager_State::DM_NOT_INITIALIZED;
+
+	result = ReadFileToSetup(pFilePath, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos);
+	if (result != DisplayManager_State::DM_OK)
+	{
+		return result;
+	}
+
+	result = GetGridTopos(&gridCount, &pGridTopos);
+	if (result != DisplayManager_State::DM_OK)
+	{
+		return result;
+	}
+
+	if (CompareGridTopologies(gridCount, pGridTopos, fileGridCount, pFileGridTopos))
+	{
+		//In surround mode
+		delete pFileGridTopos;
+		FreePathInfo(filePathCount, filePathInfo);
+		return DisplayManager_State::DM_SURROUND_ACTIVE;
 	}
 
 	//Not in surround
@@ -391,6 +440,7 @@ void DisplayManager::FreePathInfo(NvU32 freePathCount, NV_DISPLAYCONFIG_PATH_INF
 #endif
 		}
 	}
+	freePathInfo = NULL;
 }
 
 bool DisplayManager::CompareDisplayPaths(NvU32 nPathInfoCount1, NV_DISPLAYCONFIG_PATH_INFO* pPathInfo1, NvU32 nPathInfoCount2, NV_DISPLAYCONFIG_PATH_INFO* pPathInfo2)
@@ -425,7 +475,7 @@ bool DisplayManager::CompareGridTopologies(NvU32 nGridCount1, NV_MOSAIC_GRID_TOP
 		{
 			//Grid topology are equal
 			return true;
-		}		
+		}
 	}
 	return false;
 }
@@ -435,15 +485,21 @@ DisplayManager_State DisplayManager::GetPhysicalGpus()
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
-	if (physicalGpuCount == 0)
+	try
 	{
-		memset(hPhysicalGpu, 0, sizeof(NvPhysicalGpuHandle) * NVAPI_MAX_PHYSICAL_GPUS);
-		if (NvAPI_EnumPhysicalGPUs(hPhysicalGpu, &physicalGpuCount) == NVAPI_OK)
+		if (physicalGpuCount == 0)
+		{
+			memset(hPhysicalGpu, 0, sizeof(NvPhysicalGpuHandle) * NVAPI_MAX_PHYSICAL_GPUS);
+			if (NvAPI_EnumPhysicalGPUs(hPhysicalGpu, &physicalGpuCount) == NVAPI_OK)
+				return DisplayManager_State::DM_OK;
+		}
+		else
+		{
 			return DisplayManager_State::DM_OK;
+		}
 	}
-	else
+	catch (...)
 	{
-		return DisplayManager_State::DM_OK;
 	}
 	return DisplayManager_State::DM_GET_GPU_ERROR;
 
@@ -457,29 +513,34 @@ DisplayManager_State DisplayManager::GetConnectedDisplays(NvU32* nGetDisplayIdCo
 
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
-
-	if (physicalGpuCount == 0)
+	try
 	{
-		if (GetPhysicalGpus() != DisplayManager_State::DM_OK)
-			return DisplayManager_State::DM_GET_GPU_ERROR;
-	}
-	//Get all connected displays
-	for (NvU32 GpuIndex = 0; GpuIndex < physicalGpuCount; GpuIndex++)
-	{
-		if ((NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[GpuIndex], pDisplayIds, &nDisplayIds, 0) == NVAPI_OK) && nDisplayIds)
+		if (physicalGpuCount == 0)
 		{
-			DisplayGpuIndex = GpuIndex;
-			pDisplayIds = new NV_GPU_DISPLAYIDS[nDisplayIds * sizeof(NV_GPU_DISPLAYIDS)];
-			if (pDisplayIds)
+			if (GetPhysicalGpus() != DisplayManager_State::DM_OK)
+				return DisplayManager_State::DM_GET_GPU_ERROR;
+		}
+		//Get all connected displays
+		for (NvU32 GpuIndex = 0; GpuIndex < physicalGpuCount; GpuIndex++)
+		{
+			if ((NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[GpuIndex], pDisplayIds, &nDisplayIds, 0) == NVAPI_OK) && nDisplayIds)
 			{
-				memset(pDisplayIds, 0, nDisplayIds * sizeof(NV_GPU_DISPLAYIDS));
-				pDisplayIds[GpuIndex].version = NV_GPU_DISPLAYIDS_VER;
-				if (NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[DisplayGpuIndex], pDisplayIds, &nDisplayIds, 0) != NVAPI_OK)
-					return DisplayManager_State::DM_GET_DISPLAY_ERROR;
+				DisplayGpuIndex = GpuIndex;
+				pDisplayIds = new NV_GPU_DISPLAYIDS[nDisplayIds * sizeof(NV_GPU_DISPLAYIDS)];
+				if (pDisplayIds)
+				{
+					memset(pDisplayIds, 0, nDisplayIds * sizeof(NV_GPU_DISPLAYIDS));
+					pDisplayIds[GpuIndex].version = NV_GPU_DISPLAYIDS_VER;
+					if (NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[DisplayGpuIndex], pDisplayIds, &nDisplayIds, 0) != NVAPI_OK)
+						return DisplayManager_State::DM_GET_DISPLAY_ERROR;
+				}
 			}
 		}
-	}
 
+	}
+	catch (...)
+	{
+	}
 	*pGetDisplayIds = pDisplayIds;
 	*nGetDisplayIdCount = nDisplayIds;
 
@@ -494,74 +555,80 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
-	// Retrieve the display path information
-	
-	if (NvAPI_DISP_GetDisplayConfig(&path_count, NULL) != NVAPI_OK)    return DisplayManager_State::DM_GET_PATHS_ERROR;
-
-	path_info = new NV_DISPLAYCONFIG_PATH_INFO[path_count * sizeof(NV_DISPLAYCONFIG_PATH_INFO)];
-	if (path_info == NULL)
+	try
 	{
-		return DisplayManager_State::DM_OUT_OF_MEMORY;
-	}
+		// Retrieve the display path information
 
-	memset(path_info, 0, path_count * sizeof(NV_DISPLAYCONFIG_PATH_INFO));
-	for (NvU32 i = 0; i < path_count; i++)
-	{
-		path_info[i].version = NV_DISPLAYCONFIG_PATH_INFO_VER;
-	}
+		if (NvAPI_DISP_GetDisplayConfig(&path_count, NULL) != NVAPI_OK)    return DisplayManager_State::DM_GET_PATHS_ERROR;
 
-	// Retrieve the targetInfo counts
-	
-	if (NvAPI_DISP_GetDisplayConfig(&path_count, path_info) != NVAPI_OK)
-	{
-		return DisplayManager_State::DM_GET_PATHS_ERROR;
-	}
-
-	for (NvU32 i = 0; i < path_count; i++)
-	{
-		// Allocate the source mode info
-
-		if (path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER1 || path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER2)
+		path_info = new NV_DISPLAYCONFIG_PATH_INFO[path_count * sizeof(NV_DISPLAYCONFIG_PATH_INFO)];
+		if (path_info == NULL)
 		{
-			path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO[sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+			return DisplayManager_State::DM_OUT_OF_MEMORY;
 		}
-		else
+
+		memset(path_info, 0, path_count * sizeof(NV_DISPLAYCONFIG_PATH_INFO));
+		for (NvU32 i = 0; i < path_count; i++)
 		{
+			path_info[i].version = NV_DISPLAYCONFIG_PATH_INFO_VER;
+		}
+
+		// Retrieve the targetInfo counts
+
+		if (NvAPI_DISP_GetDisplayConfig(&path_count, path_info) != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_GET_PATHS_ERROR;
+		}
+
+		for (NvU32 i = 0; i < path_count; i++)
+		{
+			// Allocate the source mode info
+
+			if (path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER1 || path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER2)
+			{
+				path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO[sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+			}
+			else
+			{
 
 #ifdef NV_DISPLAYCONFIG_PATH_INFO_VER3
-			path_info[i].sourceModeInfo = new (NV_DISPLAYCONFIG_SOURCE_MODE_INFO[path_info[i].sourceModeInfoCount * sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+				path_info[i].sourceModeInfo = new (NV_DISPLAYCONFIG_SOURCE_MODE_INFO[path_info[i].sourceModeInfoCount * sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
 #endif
 
-		}
-		if (path_info[i].sourceModeInfo == NULL)
-		{
-			return DisplayManager_State::DM_OUT_OF_MEMORY;
-		}
-		memset(path_info[i].sourceModeInfo, 0, sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO));
+			}
+			if (path_info[i].sourceModeInfo == NULL)
+			{
+				return DisplayManager_State::DM_OUT_OF_MEMORY;
+			}
+			memset(path_info[i].sourceModeInfo, 0, sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO));
 
-		// Allocate the target array
-		path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO)];
-		if (path_info[i].targetInfo == NULL)
-		{
-			return DisplayManager_State::DM_OUT_OF_MEMORY;
+			// Allocate the target array
+			path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO)];
+			if (path_info[i].targetInfo == NULL)
+			{
+				return DisplayManager_State::DM_OUT_OF_MEMORY;
+			}
+			// Allocate the target details
+			memset(path_info[i].targetInfo, 0, path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO));
+			for (NvU32 j = 0; j < path_info[i].targetInfoCount; j++)
+			{
+				path_info[i].targetInfo[j].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO[sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO)];
+				memset(path_info[i].targetInfo[j].details, 0, sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO));
+				path_info[i].targetInfo[j].details->version = NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO_VER;
+			}
 		}
-		// Allocate the target details
-		memset(path_info[i].targetInfo, 0, path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO));
-		for (NvU32 j = 0; j < path_info[i].targetInfoCount; j++)
+
+		// Retrieve the full path info
+		if (NvAPI_DISP_GetDisplayConfig(&path_count, path_info) != NVAPI_OK)
 		{
-			path_info[i].targetInfo[j].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO[sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO)];
-			memset(path_info[i].targetInfo[j].details, 0, sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO));
-			path_info[i].targetInfo[j].details->version = NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO_VER;
+			return DisplayManager_State::DM_GET_PATHS_ERROR;
 		}
+		*pathInfoCount = path_count;
+		*pGetPathInfo = path_info;
 	}
-
-	// Retrieve the full path info
-	if (NvAPI_DISP_GetDisplayConfig(&path_count, path_info) != NVAPI_OK)
+	catch (...)
 	{
-		return DisplayManager_State::DM_GET_PATHS_ERROR;
-	}	
-	*pathInfoCount = path_count;
-	*pGetPathInfo = path_info;
+	}
 	return DisplayManager_State::DM_OK;
 }
 
@@ -573,32 +640,36 @@ DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GR
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
-	
-	if (NvAPI_Mosaic_EnumDisplayGrids(NULL, &GridCount) != NVAPI_OK)
+	try
 	{
-		return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
-	}
+		if (NvAPI_Mosaic_EnumDisplayGrids(NULL, &GridCount) != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
+		}
 
-	pGridTopologies = new NV_MOSAIC_GRID_TOPO[GridCount * sizeof(NV_MOSAIC_GRID_TOPO)];
-	if (pGridTopologies == NULL)
+		pGridTopologies = new NV_MOSAIC_GRID_TOPO[GridCount * sizeof(NV_MOSAIC_GRID_TOPO)];
+		if (pGridTopologies == NULL)
+		{
+			return DisplayManager_State::DM_OUT_OF_MEMORY;
+		}
+		memset(pGridTopologies, 0, GridCount * sizeof(NV_MOSAIC_GRID_TOPO));
+
+		for (NvU32 i = 0; i < GridCount; i++)
+		{
+			pGridTopologies[i].version = NV_MOSAIC_GRID_TOPO_VER;
+		}
+
+		if (NvAPI_Mosaic_EnumDisplayGrids(pGridTopologies, &GridCount) != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
+		}
+
+		*gridCount = GridCount;
+		*pGetGridTopo = pGridTopologies;
+	}
+	catch (...)
 	{
-		return DisplayManager_State::DM_OUT_OF_MEMORY;
 	}
-	memset(pGridTopologies, 0, GridCount * sizeof(NV_MOSAIC_GRID_TOPO));
-
-	for (NvU32 i = 0; i < GridCount; i++)
-	{
-		pGridTopologies[i].version = NV_MOSAIC_GRID_TOPO_VER;
-	}
-
-	if (NvAPI_Mosaic_EnumDisplayGrids(pGridTopologies, &GridCount) != NVAPI_OK)
-	{
-		return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
-	}
-
-	*gridCount = GridCount;
-	*pGetGridTopo = pGridTopologies;
-
 	return DisplayManager_State::DM_OK;
 }
 
@@ -607,7 +678,7 @@ DisplayManager_State DisplayManager::GetWindows(std::vector<WindowPos> *pGetWind
 	if (EnumWindows(EnumWindowProc, reinterpret_cast<LPARAM>(pGetWindowList)))
 	{
 		return DisplayManager_State::DM_OK;
-	}		
+	}
 	return DisplayManager_State::DM_GET_WINDOW_POS_ERROR;
 }
 
@@ -617,63 +688,77 @@ DisplayManager_State DisplayManager::SetDisplayPaths(NvU32 nPathInfoCount, NV_DI
 	NV_DISPLAYCONFIG_PATH_INFO* pGetPathInfo = NULL;
 	GetDisplayPaths(&nGetPathCount, &pGetPathInfo);
 	//Do comparison
-	if (CompareDisplayPaths(nGetPathCount, pGetPathInfo, nPathInfoCount, pSetPathInfo))
+	try
 	{
-		FreePathInfo(nGetPathCount, pGetPathInfo);
-		return DisplayManager_State::DM_OK;
-	}
+		if (CompareDisplayPaths(nGetPathCount, pGetPathInfo, nPathInfoCount, pSetPathInfo))
+		{
+			FreePathInfo(nGetPathCount, pGetPathInfo);
+			return DisplayManager_State::DM_OK;
+		}
 
-	if (NvAPI_DISP_SetDisplayConfig(nPathInfoCount, pSetPathInfo, (NvU32)flags) != NVAPI_OK)
+		if (NvAPI_DISP_SetDisplayConfig(nPathInfoCount, pSetPathInfo, (NvU32)flags) != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
+		}
+	}
+	catch (...)
 	{
-		return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
 	}
 	return DisplayManager_State::DM_OK;
 }
 
 DisplayManager_State DisplayManager::SetGridTopos(NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo)
 {
+	NvAPI_Status result = NVAPI_OK;
 	NvU32 nGetGridCount = 0;
 	NV_MOSAIC_GRID_TOPO* pGetGridTopo = NULL;
-	GetGridTopos(&nGetGridCount, &pGetGridTopo);	
-	//Do comparison
-	if (CompareGridTopologies(nGetGridCount, pGetGridTopo, nGridCount, pSetGridTopo))
-	{
-		delete pGetGridTopo;
-		return DisplayManager_State::DM_OK;
-	}
-
-	NV_MOSAIC_DISPLAY_TOPO_STATUS *pTopoStatus = new NV_MOSAIC_DISPLAY_TOPO_STATUS[nGridCount];
-
-	for (NvU32 i = 0; i < nGridCount; i++)
-	{
-		pTopoStatus[i].version = NV_MOSAIC_DISPLAY_TOPO_STATUS_VER;
-	}
-
-	if (NvAPI_Mosaic_ValidateDisplayGrids(NV_MOSAIC_SETDISPLAYTOPO_FLAG_CURRENT_GPU_TOPOLOGY, pSetGridTopo, pTopoStatus, nGridCount) != NVAPI_OK)
-	{
-		return DisplayManager_State::DM_GRID_TOPO_INVALID;
-	}
-	for (NvU32 i = 0; i < nGridCount; i++)
-	{
-		if (pTopoStatus[i].errorFlags != 0 || pTopoStatus[i].warningFlags != 0)
-		{
-			delete pTopoStatus;
-			return DisplayManager_State::DM_GRID_TOPO_INVALID;
-		}
-	}
-	//Set Display Grid
-	if (NvAPI_Mosaic_SetDisplayGrids(pSetGridTopo, nGridCount, NV_MOSAIC_SETDISPLAYTOPO_FLAG_CURRENT_GPU_TOPOLOGY) != NVAPI_OK)
-	{
-		return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
-	}
-
-	//Get current setup to confirm Display was setup
 	GetGridTopos(&nGetGridCount, &pGetGridTopo);
 	//Do comparison
-	if (!CompareGridTopologies(nGetGridCount, pGetGridTopo, nGridCount, pSetGridTopo))
+	try
 	{
-		delete pGetGridTopo;
-		return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
+		if (CompareGridTopologies(nGetGridCount, pGetGridTopo, nGridCount, pSetGridTopo))
+		{
+			delete pGetGridTopo;
+			return DisplayManager_State::DM_OK;
+		}
+
+		NV_MOSAIC_DISPLAY_TOPO_STATUS *pTopoStatus = new NV_MOSAIC_DISPLAY_TOPO_STATUS[nGridCount];
+
+		for (NvU32 i = 0; i < nGridCount; i++)
+		{
+			pTopoStatus[i].version = NV_MOSAIC_DISPLAY_TOPO_STATUS_VER;
+		}
+
+		if (NvAPI_Mosaic_ValidateDisplayGrids(NV_MOSAIC_SETDISPLAYTOPO_FLAG_CURRENT_GPU_TOPOLOGY, pSetGridTopo, pTopoStatus, nGridCount) != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_GRID_TOPO_INVALID;
+		}
+		for (NvU32 i = 0; i < nGridCount; i++)
+		{
+			if (pTopoStatus[i].errorFlags != 0 || pTopoStatus[i].warningFlags != 0)
+			{
+				delete pTopoStatus;
+				return DisplayManager_State::DM_GRID_TOPO_INVALID;
+			}
+		}
+		//Set Display Grid
+		result = NvAPI_Mosaic_SetDisplayGrids(pSetGridTopo, nGridCount, NV_MOSAIC_SETDISPLAYTOPO_FLAG_CURRENT_GPU_TOPOLOGY);
+		if (result != NVAPI_OK)
+		{
+			return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
+		}
+
+		//Get current setup to confirm Display was setup
+		GetGridTopos(&nGetGridCount, &pGetGridTopo);
+		//Do comparison
+		if (!CompareGridTopologies(nGetGridCount, pGetGridTopo, nGridCount, pSetGridTopo))
+		{
+			delete pGetGridTopo;
+			return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
+		}
+	}
+	catch (...)
+	{
 	}
 	return DisplayManager_State::DM_OK;
 }
@@ -687,7 +772,7 @@ DisplayManager_State DisplayManager::SetWindows(std::vector<WindowPos> *pSetWind
 		//Check window exists first might have been closed by now
 		if (IsWindow((*pSetWindowList)[i].hWnd))
 		{
-			//Update the posisition of the window
+			//Update the position of the window
 			if (!SetWindowPlacement((*pSetWindowList)[i].hWnd, &(*pSetWindowList)[i].winPlacement))
 			{
 				windowsError = GetLastError();
@@ -703,11 +788,11 @@ DisplayManager_State DisplayManager::ReadFileToSetup(const char* pFilePath, NvU3
 	unsigned char* pData = NULL;
 
 	DisplayManager_State result = DisplayManager_State::DM_OK;
-	DisplayManager_FileHeader file;	
+	DisplayManager_FileHeader file;
 	DisplayManager_File_GridTopo gridTopoFile;
 	DisplayManager_File_PathInfo pathInfoFile;
 	unsigned int index = 0;
-	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;	
+	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;
 	NV_DISPLAYCONFIG_PATH_INFO *path_info = NULL;
 
 	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
@@ -761,7 +846,7 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	unsigned char *pDataLocal = NULL;
 	unsigned char *pDataGridTopo = NULL;
 	unsigned char *pDataPathInfo = NULL;
-	
+
 	unsigned int dataLengthGridTopo = 0;
 	unsigned int dataLengthPathInfo = 0;
 
@@ -791,15 +876,15 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 		return result;
 	}
 
-	//Update grid topo file header info
+	//Update grid topology file header info
 	memset(&gridTopoFile, 0, sizeof(DisplayManager_File_GridTopo));
 	gridTopoFile.header.fileType = NVAPI_FileType::gridTopo;
 	gridTopoFile.gridCount = nGridCount;
 
-	//Calc size of file
+	//Calculate size of file
 	gridTopoFile.header.size += sizeof(DisplayManager_File_GridTopo);
 	gridTopoFile.header.size += dataLengthGridTopo;
-	
+
 	//Create Data from structs
 	result = PathInfoToData(nPathInfoCount, pSetPathInfo, &dataLengthPathInfo, &pDataPathInfo);
 	if (result != DisplayManager_State::DM_OK)
@@ -822,7 +907,7 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	pathInfoFile.header.fileType = NVAPI_FileType::pathInfo;
 	pathInfoFile.pathCount = nPathInfoCount;
 
-	//Calc size of file
+	//Calculate size of file
 	pathInfoFile.header.size += sizeof(DisplayManager_File_PathInfo);
 	pathInfoFile.header.size += dataLengthPathInfo;
 
@@ -845,15 +930,15 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	}
 	memset(pDataLocal, 0, file.size);
 
-	//Start wrting to data
+	//Start writing to data
 	//Write File header
 	memcpy(&pDataLocal[index], &file, sizeof(DisplayManager_FileHeader));
 	index += sizeof(DisplayManager_FileHeader);
 
-	//Write Grid Topo file header
+	//Write Grid topology file header
 	memcpy(&pDataLocal[index], &gridTopoFile, sizeof(DisplayManager_File_GridTopo));
 	index += sizeof(DisplayManager_File_GridTopo);
-	//Write Grid Topo file data
+	//Write Grid topology file data
 	memcpy(&pDataLocal[index], pDataGridTopo, dataLengthGridTopo);
 	index += dataLengthGridTopo;
 
@@ -901,7 +986,7 @@ DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DIS
 
 	path_info = new NV_DISPLAYCONFIG_PATH_INFO[nPathInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_INFO)];
 	memset(path_info, 0, nPathInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_INFO));
-	
+
 	for (NvU32 i = 0; i < nPathInfoCount; i++)
 	{
 		memcpy(&path_info[i].version, &pData[index], sizeof(NvU32));
@@ -982,7 +1067,7 @@ DisplayManager_State DisplayManager::DataToGridTopo(NvU32 nGridCount, NV_MOSAIC_
 {
 	unsigned int index = 0;
 	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;
-	
+
 	if (*pGetGridTopo != NULL)
 	{
 		delete(*pGetGridTopo);
@@ -1006,7 +1091,7 @@ DisplayManager_State DisplayManager::PathInfoToData(NvU32 nPathInfoCount, NV_DIS
 	{
 		return DisplayManager_State::DM_NO_PATH_INFO;
 	}
-	
+
 	//Calculate size of file
 	for (NvU32 i = 0; i < nPathInfoCount; i++)
 	{
@@ -1032,12 +1117,12 @@ DisplayManager_State DisplayManager::PathInfoToData(NvU32 nPathInfoCount, NV_DIS
 	}
 
 	//Create Data memory
-	
+
 	pData = new unsigned char[fileSize];
 	if (pData == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;
 	memset(pData, 0, fileSize);
 
-	//Start wrting to data
+	//Start writing to data
 	for (NvU32 i = 0; i < nPathInfoCount; i++)
 	{
 		//Write version, id and targerInfoCount
@@ -1106,7 +1191,7 @@ DisplayManager_State DisplayManager::GridTopoToData(NvU32 nGridCount, NV_MOSAIC_
 	{
 		return DisplayManager_State::DM_NO_GRID_TOPOS;
 	}
-		
+
 	//Calculate size of file
 	fileSize += (nGridCount * sizeof(NV_MOSAIC_GRID_TOPO));
 	//Create Data memory	
@@ -1114,14 +1199,14 @@ DisplayManager_State DisplayManager::GridTopoToData(NvU32 nGridCount, NV_MOSAIC_
 	if (pData == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;
 	memset(pData, 0, fileSize);
 
-	//Start wrting to data
-	//Write grid topos
+	//Start writing to data
+	//Write grid topology's
 	memcpy(&pData[0], pSetGridTopo, fileSize);
 
 	//Clear data if exists	
 	*pOutData = pData;
 	*pDataLength = fileSize;
-	
+
 	if (*pOutData == NULL)return DisplayManager_State::DM_ERROR;
 	return DisplayManager_State::DM_OK;
 }
@@ -1139,7 +1224,7 @@ DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_
 	{
 		return DisplayManager_State::DM_NO_PATH_INFO;
 	}
-				
+
 	//Create Data from structs
 	result = PathInfoToData(nSetPathCount, pSetPathInfo, &dataLength, &pData);
 	if (result != DisplayManager_State::DM_OK)
@@ -1156,8 +1241,8 @@ DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_
 	memset(&pathFile, 0, sizeof(DisplayManager_File_PathInfo));
 	pathFile.header.fileType = NVAPI_FileType::pathInfo;
 	pathFile.pathCount = nSetPathCount;
-	
-	//Calc size of file
+
+	//Calculate size of file
 	pathFile.header.size += sizeof(DisplayManager_File_PathInfo);
 	pathFile.header.size += dataLength;
 	pDataLocal = new unsigned char[pathFile.header.size];
@@ -1165,7 +1250,7 @@ DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_
 
 	memset(pDataLocal, 0, pathFile.header.size);
 
-	//Start wrting to data
+	//Start writing to data
 	memcpy(&pDataLocal[index], &pathFile, sizeof(DisplayManager_File_PathInfo));
 	index += sizeof(DisplayManager_File_PathInfo);
 
@@ -1194,7 +1279,7 @@ DisplayManager_State DisplayManager::DataFileToPathInfo(NvU32 *pGetPathCount, NV
 	unsigned char* pData = NULL;
 	DisplayManager_File_PathInfo pathFile;
 	unsigned int index = 0;
-	
+
 	if (!ReadFromFile(pFilePath, &pData)) return DisplayManager_State::DM_READ_FILE_ERROR;
 
 	memcpy(&pathFile, pData, sizeof(DisplayManager_File_PathInfo));
@@ -1211,7 +1296,7 @@ DisplayManager_State DisplayManager::DataFileToPathInfo(NvU32 *pGetPathCount, NV
 }
 
 DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOSAIC_GRID_TOPO *pSetGridTopo, const char* pFilePath)
-{	
+{
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 	DisplayManager_File_GridTopo gridTopoFile;
 	unsigned char *pDataLocal = NULL;
@@ -1222,7 +1307,7 @@ DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOS
 	if (!nGridCount || pSetGridTopo == NULL)
 	{
 		return DisplayManager_State::DM_NO_GRID_TOPOS;
-	}	
+	}
 
 	//Create Data from structs
 	result = GridTopoToData(nGridCount, pSetGridTopo, &dataLength, &pData);
@@ -1241,20 +1326,20 @@ DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOS
 	gridTopoFile.header.fileType = NVAPI_FileType::gridTopo;
 	gridTopoFile.gridCount = nGridCount;
 
-	//Calc size of file
+	//Calculate size of file
 	gridTopoFile.header.size += sizeof(DisplayManager_File_GridTopo);
 	gridTopoFile.header.size += dataLength;
 	pDataLocal = new unsigned char[gridTopoFile.header.size];
-	if (pDataLocal == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;		
+	if (pDataLocal == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;
 	memset(pDataLocal, 0, gridTopoFile.header.size);
 
-	//Start wrting to data
+	//Start writing to data
 	memcpy(&pDataLocal[index], &gridTopoFile, sizeof(DisplayManager_File_GridTopo));
 	index += sizeof(DisplayManager_File_GridTopo);
 
 	memcpy(&pDataLocal[index], pData, dataLength);
 	//Save to file
-	if(!SaveToFile(pFilePath, pDataLocal, gridTopoFile.header.size))
+	if (!SaveToFile(pFilePath, pDataLocal, gridTopoFile.header.size))
 		result = DisplayManager_State::DM_SAVE_FILE_ERROR;
 
 	//clear data memory
@@ -1280,7 +1365,7 @@ DisplayManager_State DisplayManager::DataFileToGridTopo(NvU32* pGridCount, NV_MO
 	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;
 
 	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
-	
+
 	memcpy(&gridTopoFile, pData, sizeof(DisplayManager_File_GridTopo));
 	index += sizeof(DisplayManager_File_GridTopo);
 

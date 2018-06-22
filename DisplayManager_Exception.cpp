@@ -30,7 +30,7 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
 		Message = "General Error";
 		break;
 	case DisplayManager_State::DM_LIB_NOT_FOUND:
-		Message = "NVidia Api Library not found";
+		Message = "NVidia API Library not found";
 		break;
 	case DisplayManager_State::DM_NOT_INITIALIZED:
 		Message = "Display Manager not initialized";
@@ -48,7 +48,7 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
 		Message = "Could not get information about topology setup";
 		break;
 	case DisplayManager_State::DM_GET_WINDOW_POS_ERROR:
-		Message = "Could not get window posisitions";
+		Message = "Could not get window positions";
 		break;
 	case DisplayManager_State::DM_NO_PATH_INFO:
 		Message = "No display setup loaded";
@@ -66,7 +66,7 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
 		Message = "Could not set display setup";
 		break;
 	case DisplayManager_State::DM_SAVE_FILE_ERROR:
-		Message = "Saveing the file was not possible";
+		Message = "Saving the file was not possible";
 		break;
 	case DisplayManager_State::DM_READ_FILE_ERROR:
 		Message = "Reading the file was not possible";

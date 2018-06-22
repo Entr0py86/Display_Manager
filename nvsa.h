@@ -20,7 +20,7 @@ namespace Display_Manager
 		//Initialize Display manager so that it can perform requested actions
 		void Initialize();
 		
-		//Save setup to memory. The underlying dll has space for two sets of display configs. So surround and normal configs can be stored/read for quick access.
+		//Save setup to memory. The underlying DLL has space for two sets of display config's. So surround and normal config's can be stored/read for quick access.
 		void SaveSetupToMemory(bool asSurround);
 		//Save current setup to file
 		void SaveSetupToFile(System::String ^ filePath);
@@ -34,6 +34,8 @@ namespace Display_Manager
 		void ApplySetup(System::String ^ filePath);
 		//Check if surround is active using the number of columns and rows the current setup has. If either is larger than 1 then two or more monitors have been made to seem as one.
 		bool IsSurroundActive();
+		//Check if surround config from file is currently active
+		bool IsSurroundActive(System::String ^ filePath);
 
 		//Windows info for re-application later
 		void SaveWindowPositions();

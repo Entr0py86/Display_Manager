@@ -68,8 +68,10 @@ public:
 	DisplayManager_State ApplyWindowPositions();
 	//Minimize Windows
 	DisplayManager_State MinimizeAllWindows();
-	//Check wether surround is already active
+	//Check whether surround is already active
 	DisplayManager_State IsSurroundActive();
+	//Check whether surround from file is already active
+	DisplayManager_State IsSurroundActive(const char* filePath);
 	
 private:
 	std::vector<WindowPos> windowPositions;
@@ -108,7 +110,7 @@ private:
 	DisplayManager_State LoadNormalSetup(const char* filePath);
 	//Load surround setup from file
 	DisplayManager_State LoadSurroundSetup(const char* filePath);
-	//Apply nomral setup in memory to hw
+	//Apply normal setup in memory to hw
 	DisplayManager_State ApplyNormalSetup();
 	//Apply surround setup in memory to hw
 	DisplayManager_State ApplySurroundSetup();
@@ -116,7 +118,7 @@ private:
 	//Compare functions return true if equal
 	bool CompareDisplayPaths(NvU32 nPathInfoCount1, NV_DISPLAYCONFIG_PATH_INFO* pPathInfo1, NvU32 nPathInfoCount2, NV_DISPLAYCONFIG_PATH_INFO* pPathInfo2);
 	bool CompareGridTopologies(NvU32 nGridCount1, NV_MOSAIC_GRID_TOPO* pGridTopo1, NvU32 nGridCount2, NV_MOSAIC_GRID_TOPO* pGridTopo2);
-	//Comapre current setup with file setup
+	//Compare current setup with file setup
 	//DisplayManager_State CompareDisplaySetups();
 
 	//Get functions for setup
