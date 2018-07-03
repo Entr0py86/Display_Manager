@@ -53,15 +53,13 @@ public:
 	//Save current setup to memory
 	DisplayManager_State SaveSetupToMemory(bool surround);
 	//Save current setup to file
-	DisplayManager_State SaveSetupToFile(const char* filePath);
-	//Save current setup to file
-	DisplayManager_State SaveSetupToFile(const char* filePath, bool surround);
-	//Load setup from file
-	DisplayManager_State LoadSetup(const char* filePath, bool surround);
+	DisplayManager_State SaveSetupToData(unsigned int* dataSize, unsigned char** pData);	
+	//Load setup from Data blob
+	DisplayManager_State LoadSetup(bool surround, unsigned char* pData);
 	//Apply setup in memory to hw
 	DisplayManager_State ApplySetup(bool surround);
 	//Apply setup in file to hw
-	DisplayManager_State ApplySetup(const char* filePath);
+	DisplayManager_State ApplySetup(unsigned char* pData);
 	//Windows info for re-application later
 	DisplayManager_State SaveWindowPositions();
 	//Reposition windows
@@ -71,7 +69,7 @@ public:
 	//Check whether surround is already active
 	DisplayManager_State IsSurroundActive();
 	//Check whether surround from file is already active
-	DisplayManager_State IsSurroundActive(const char* filePath);
+	DisplayManager_State IsSurroundActive(unsigned char* pData);
 	
 private:
 	std::vector<WindowPos> windowPositions;
@@ -106,10 +104,18 @@ private:
 	DisplayManager_State SaveNormalSetup(const char* filePath);
 	//Save current setup to file
 	DisplayManager_State SaveSurroundSetup(const char* filePath);
+	//Save current setup to file
+	DisplayManager_State SaveNormalSetup(unsigned int* dataSize, unsigned char* pData);
+	//Save current setup to file
+	DisplayManager_State SaveSurroundSetup(unsigned int* dataSize, unsigned char* pData);
 	//Load normal setup from file
 	DisplayManager_State LoadNormalSetup(const char* filePath);
 	//Load surround setup from file
-	DisplayManager_State LoadSurroundSetup(const char* filePath);
+	DisplayManager_State LoadSurroundSetup(const char* filePath); 
+	//Load normal setup from file
+	DisplayManager_State LoadNormalSetup(unsigned char* pData);
+	//Load surround setup from file
+	DisplayManager_State LoadSurroundSetup(unsigned char* pData);
 	//Apply normal setup in memory to hw
 	DisplayManager_State ApplyNormalSetup();
 	//Apply surround setup in memory to hw
@@ -132,6 +138,10 @@ private:
 	DisplayManager_State SetDisplayPaths(NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo);
 	DisplayManager_State SetGridTopos(NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo);
 	DisplayManager_State SetWindows(std::vector<WindowPos> *pSetWindowList);
+
+	//Data Parsers
+	DisplayManager_State ReadDataToSetup(unsigned char* data, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo);
+	DisplayManager_State SaveSetupToData(unsigned int* dataSize, unsigned char** data, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo);
 
 	//Setup to File Handlers
 	/*

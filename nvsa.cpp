@@ -38,36 +38,42 @@ namespace Display_Manager
 		}
 	}
 
-	void Surround_Manager::SaveSetupToFile(System::String ^ filePath)
-	{	
-		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
+	array<System::Byte>^  Surround_Manager::SaveSetup()
+	{
+		unsigned char* pData = NULL;
+		unsigned int dataSize = 0;
 
-		state = displayManager->SaveSetupToFile(sFilePath.c_str());
+		state = displayManager->SaveSetupToData(&dataSize, &pData);
 		if (state != DisplayManager_State::DM_OK)
 		{
 			throw gcnew DisplayManager_Exception(state);
 		}
-	}
 
-	void Surround_Manager::SaveSetupToFile(System::String ^ filePath, bool asSurround)
-	{
-		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
-
-		state = displayManager->SaveSetupToFile(sFilePath.c_str(), asSurround);
-		if (state != DisplayManager_State::DM_OK)
+		if (pData != NULL && dataSize > 0)
 		{
-			throw gcnew DisplayManager_Exception(state);
+			array<System::Byte>^ data = gcnew array<System::Byte>(dataSize);
+
+			System::Runtime::InteropServices::Marshal::Copy(IntPtr((void *)pData), data, 0, dataSize);
+			return data;
+		}
+		else
+		{
+			//TODO add exception
+			return nullptr;
 		}
 	}
 
-	void Surround_Manager::LoadSetup(System::String ^ filePath, bool surround)
+	void Surround_Manager::LoadSetup(bool surround, array<System::Byte> ^ data)
 	{
-		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
-
-		state = displayManager->LoadSetup(sFilePath.c_str(), surround);
-		if (state != DisplayManager_State::DM_OK)
+		if (data != nullptr)
 		{
-			throw gcnew DisplayManager_Exception(state);
+			pin_ptr<unsigned char> pData = &data[0];
+
+			state = displayManager->LoadSetup(surround, pData);
+			if (state != DisplayManager_State::DM_OK)
+			{
+				throw gcnew DisplayManager_Exception(state);
+			}
 		}
 	}
 
@@ -81,14 +87,17 @@ namespace Display_Manager
 		IsSurroundActive();
 	}
 
-	void Surround_Manager::ApplySetup(System::String ^ filePath)
+	void Surround_Manager::ApplySetup(array<System::Byte> ^ data)
 	{
-		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
-
-		state = displayManager->ApplySetup(sFilePath.c_str());
-		if (state != DisplayManager_State::DM_OK)
+		if (data != nullptr)
 		{
-			throw gcnew DisplayManager_Exception(state);
+			pin_ptr<unsigned char> pData = &data[0];
+
+			state = displayManager->ApplySetup(pData);
+			if (state != DisplayManager_State::DM_OK)
+			{
+				throw gcnew DisplayManager_Exception(state);
+			}
 		}
 		IsSurroundActive();
 	}
@@ -134,19 +143,23 @@ namespace Display_Manager
 		}
 	}
 
-	bool Surround_Manager::IsSurroundActive(System::String ^ filePath)
+	bool Surround_Manager::IsSurroundActive(array<System::Byte> ^ data)//TODO update this to data block
 	{
-		std::string sFilePath = msclr::interop::marshal_as<std::string>(filePath);
-
-		state = displayManager->IsSurroundActive(sFilePath.c_str());
-		if (state == DisplayManager_State::DM_SURROUND_ACTIVE)
-			return surroundEnabled = true;
-		else if (state == DisplayManager_State::DM_SURROUND_NOT_ACTIVE)
-			return surroundEnabled = false;
-		else
+		if (data != nullptr)
 		{
-			surroundEnabled = false;
-			throw gcnew DisplayManager_Exception(state);
-		}
+			pin_ptr<unsigned char> pData = &data[0];
+
+			state = displayManager->IsSurroundActive(pData);
+			if (state == DisplayManager_State::DM_SURROUND_ACTIVE)
+				surroundEnabled = true;
+			else if (state == DisplayManager_State::DM_SURROUND_NOT_ACTIVE)
+				surroundEnabled = false;
+			else
+			{
+				surroundEnabled = false;
+				throw gcnew DisplayManager_Exception(state);
+			}
+		}//TODO add message above as well
+		return surroundEnabled;
 	}
 }

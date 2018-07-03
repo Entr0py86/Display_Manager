@@ -139,7 +139,7 @@ DisplayManager_State DisplayManager::SaveSetupToMemory(bool surround)
 		return SaveCurrentNormalSetup();
 }
 
-DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath)
+DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, unsigned char** pData)
 {
 	NvU32 pathCount = 0;
 	NV_DISPLAYCONFIG_PATH_INFO *pathInfo = NULL;
@@ -169,23 +169,15 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath)
 		return result;
 	}
 
-	return SaveSetupToFile(pFilePath, pathCount, pathInfo, gridCount, gridTopologies);
+	return SaveSetupToData(dataSize, pData, pathCount, pathInfo, gridCount, gridTopologies);
 }
 
-DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, bool surround)
+DisplayManager_State DisplayManager::LoadSetup(bool surround, unsigned char* pData)
 {
 	if (surround)
-		return SaveSurroundSetup(pFilePath);
+		return LoadSurroundSetup(pData);
 	else
-		return SaveNormalSetup(pFilePath);
-}
-
-DisplayManager_State DisplayManager::LoadSetup(const char* pFilePath, bool surround)
-{
-	if (surround)
-		return LoadSurroundSetup(pFilePath);
-	else
-		return LoadNormalSetup(pFilePath);
+		return LoadNormalSetup(pData);
 }
 
 DisplayManager_State DisplayManager::ApplySetup(bool surround)
@@ -196,7 +188,7 @@ DisplayManager_State DisplayManager::ApplySetup(bool surround)
 		return ApplyNormalSetup();
 }
 
-DisplayManager_State DisplayManager::ApplySetup(const char* filePath)
+DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
 {
 	NvU32 pathCount = 0;
 	NV_DISPLAYCONFIG_PATH_INFO *pathInfo = NULL;
@@ -207,7 +199,7 @@ DisplayManager_State DisplayManager::ApplySetup(const char* filePath)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
 
-	if ((result = ReadFileToSetup(filePath, &pathCount, &pathInfo, &gridCount, &gridTopologies)) != DisplayManager_State::DM_OK)
+	if ((result = ReadDataToSetup(pData, &pathCount, &pathInfo, &gridCount, &gridTopologies)) != DisplayManager_State::DM_OK)
 	{
 		FreePathInfo(pathCount, pathInfo);
 		return result;
@@ -288,6 +280,16 @@ DisplayManager_State DisplayManager::SaveSurroundSetup(const char* pFilePath)
 	return SaveSetupToFile(pFilePath, sr_pathCount, sr_pathInfo, sr_gridCount, sr_gridTopologies);
 }
 
+DisplayManager_State DisplayManager::SaveNormalSetup(unsigned int* dataSize, unsigned char* pData)
+{
+	return SaveSetupToData(dataSize, &pData, nm_pathCount, nm_pathInfo, nm_gridCount, nm_gridTopologies);
+}
+
+DisplayManager_State DisplayManager::SaveSurroundSetup(unsigned int* dataSize, unsigned char* pData)
+{
+	return SaveSetupToData(dataSize, &pData, sr_pathCount, sr_pathInfo, sr_gridCount, sr_gridTopologies);
+}
+
 DisplayManager_State DisplayManager::LoadNormalSetup(const char* pFilePath)
 {
 	return ReadFileToSetup(pFilePath, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies);
@@ -296,6 +298,16 @@ DisplayManager_State DisplayManager::LoadNormalSetup(const char* pFilePath)
 DisplayManager_State DisplayManager::LoadSurroundSetup(const char* pFilePath)
 {
 	return ReadFileToSetup(pFilePath, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies);
+}
+
+DisplayManager_State DisplayManager::LoadNormalSetup(unsigned char* pData)
+{
+	return ReadDataToSetup(pData, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies);
+}
+
+DisplayManager_State DisplayManager::LoadSurroundSetup(unsigned char* pData)
+{
+	return ReadDataToSetup(pData, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies);
 }
 
 DisplayManager_State DisplayManager::ApplyNormalSetup()
@@ -371,7 +383,7 @@ DisplayManager_State DisplayManager::IsSurroundActive()
 	return DisplayManager_State::DM_SURROUND_NOT_ACTIVE;
 }
 
-DisplayManager_State DisplayManager::IsSurroundActive(const char* pFilePath)
+DisplayManager_State DisplayManager::IsSurroundActive(unsigned char* pData)
 {
 	NvU32 gridCount = 0;
 	NV_MOSAIC_GRID_TOPO *pGridTopos = NULL;
@@ -386,7 +398,7 @@ DisplayManager_State DisplayManager::IsSurroundActive(const char* pFilePath)
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
-	result = ReadFileToSetup(pFilePath, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos);
+	result = ReadDataToSetup(pData, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos);
 	if (result != DisplayManager_State::DM_OK)
 	{
 		return result;
@@ -641,7 +653,7 @@ DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GR
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
 	try
-	{
+	{//TODO look for a method that checks the display is not busy or of the sort
 		if (NvAPI_Mosaic_EnumDisplayGrids(NULL, &GridCount) != NVAPI_OK)
 		{
 			return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
@@ -783,67 +795,63 @@ DisplayManager_State DisplayManager::SetWindows(std::vector<WindowPos> *pSetWind
 	return result;
 }
 
-DisplayManager_State DisplayManager::ReadFileToSetup(const char* pFilePath, NvU32* nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
+DisplayManager_State DisplayManager::ReadDataToSetup(unsigned char* pData, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
 {
-	unsigned char* pData = NULL;
-
 	DisplayManager_State result = DisplayManager_State::DM_OK;
-	DisplayManager_FileHeader file;
-	DisplayManager_File_GridTopo gridTopoFile;
-	DisplayManager_File_PathInfo pathInfoFile;
+	DisplayManager_Header header;
+	DisplayManager_GridTopo gridTopo;
+	DisplayManager_PathInfo pathInfo;
 	unsigned int index = 0;
 	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;
 	NV_DISPLAYCONFIG_PATH_INFO *path_info = NULL;
 
-	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
 	//Copy header info from beginning of file
-	memcpy(&file, pData, sizeof(DisplayManager_FileHeader));
-	index += sizeof(DisplayManager_FileHeader);
+	memcpy(&header, pData, sizeof(DisplayManager_Header));
+	index += sizeof(DisplayManager_Header);
 
-	if (file.fileType != NVAPI_FileType::combined)
+	if (header.fileType != NVAPI_DataType::combined)
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
 	//Read GridTopo Header
-	memcpy(&gridTopoFile, &pData[index], sizeof(DisplayManager_File_GridTopo));
-	index += sizeof(DisplayManager_File_GridTopo);
+	memcpy(&gridTopo, &pData[index], sizeof(DisplayManager_GridTopo));
+	index += sizeof(DisplayManager_GridTopo);
 
-	if (gridTopoFile.header.fileType != NVAPI_FileType::gridTopo)
+	if (gridTopo.header.fileType != NVAPI_DataType::gridTopo)
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
 	//Read data to structs
-	*pGridCount = gridTopoFile.gridCount;
-	result = DataToGridTopo(gridTopoFile.gridCount, pGetGridTopo, &pData[index]);
+	*pGridCount = gridTopo.gridCount;
+	result = DataToGridTopo(gridTopo.gridCount, pGetGridTopo, &pData[index]);
 	if (result != DisplayManager_State::DM_OK)
 		return result;
-	index += gridTopoFile.header.size - sizeof(DisplayManager_File_GridTopo);
+	index += gridTopo.header.size - sizeof(DisplayManager_GridTopo);
 
 	//Read PathInfo Header
-	memcpy(&pathInfoFile, &pData[index], sizeof(DisplayManager_File_PathInfo));
-	index += sizeof(DisplayManager_File_PathInfo);
+	memcpy(&pathInfo, &pData[index], sizeof(DisplayManager_PathInfo));
+	index += sizeof(DisplayManager_PathInfo);
 
-	if (pathInfoFile.header.fileType != NVAPI_FileType::pathInfo)
+	if (pathInfo.header.fileType != NVAPI_DataType::pathInfo)
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
 	//Read data to structs
-	*nPathInfoCount = pathInfoFile.pathCount;
-	result = DataToPathInfo(pathInfoFile.pathCount, pGetPathInfo, &pData[index]);
+	*pPathInfoCount = pathInfo.pathCount;
+	result = DataToPathInfo(pathInfo.pathCount, pGetPathInfo, &pData[index]);
 	if (result != DisplayManager_State::DM_OK)
 		return result;
 
 	return DisplayManager_State::DM_OK;
 }
 
-DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo)
+DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, unsigned char** pData, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo)
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
-	DisplayManager_FileHeader file;
-	DisplayManager_File_GridTopo gridTopoFile;
-	DisplayManager_File_PathInfo pathInfoFile;
+	DisplayManager_Header header;
+	DisplayManager_GridTopo gridTopo;
+	DisplayManager_PathInfo pathInfo;
 	unsigned int index = 0;
-	unsigned char *pDataLocal = NULL;
 	unsigned char *pDataGridTopo = NULL;
 	unsigned char *pDataPathInfo = NULL;
 
@@ -860,9 +868,9 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	}
 
 	//Update file header info
-	memset(&file, 0, sizeof(DisplayManager_FileHeader));
-	file.fileType = NVAPI_FileType::combined;
-	file.size += sizeof(DisplayManager_FileHeader);
+	memset(&header, 0, sizeof(DisplayManager_Header));
+	header.fileType = NVAPI_DataType::combined;
+	header.size += sizeof(DisplayManager_Header);
 
 	//Create Data from structs
 	result = GridTopoToData(nGridCount, pSetGridTopo, &dataLengthGridTopo, &pDataGridTopo);
@@ -877,13 +885,13 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	}
 
 	//Update grid topology file header info
-	memset(&gridTopoFile, 0, sizeof(DisplayManager_File_GridTopo));
-	gridTopoFile.header.fileType = NVAPI_FileType::gridTopo;
-	gridTopoFile.gridCount = nGridCount;
+	memset(&gridTopo, 0, sizeof(DisplayManager_GridTopo));
+	gridTopo.header.fileType = NVAPI_DataType::gridTopo;
+	gridTopo.gridCount = nGridCount;
 
 	//Calculate size of file
-	gridTopoFile.header.size += sizeof(DisplayManager_File_GridTopo);
-	gridTopoFile.header.size += dataLengthGridTopo;
+	gridTopo.header.size += sizeof(DisplayManager_GridTopo);
+	gridTopo.header.size += dataLengthGridTopo;
 
 	//Create Data from structs
 	result = PathInfoToData(nPathInfoCount, pSetPathInfo, &dataLengthPathInfo, &pDataPathInfo);
@@ -903,18 +911,18 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	}
 
 	//Update path info file header info
-	memset(&pathInfoFile, 0, sizeof(DisplayManager_File_PathInfo));
-	pathInfoFile.header.fileType = NVAPI_FileType::pathInfo;
-	pathInfoFile.pathCount = nPathInfoCount;
+	memset(&pathInfo, 0, sizeof(DisplayManager_PathInfo));
+	pathInfo.header.fileType = NVAPI_DataType::pathInfo;
+	pathInfo.pathCount = nPathInfoCount;
 
 	//Calculate size of file
-	pathInfoFile.header.size += sizeof(DisplayManager_File_PathInfo);
-	pathInfoFile.header.size += dataLengthPathInfo;
+	pathInfo.header.size += sizeof(DisplayManager_PathInfo);
+	pathInfo.header.size += dataLengthPathInfo;
 
-	file.size += gridTopoFile.header.size;
-	file.size += pathInfoFile.header.size;
-	pDataLocal = new unsigned char[file.size];
-	if (pDataLocal == NULL)
+	header.size += gridTopo.header.size;
+	header.size += pathInfo.header.size;
+	*pData = new unsigned char[header.size];
+	if (*pData == NULL)
 	{
 		if (pDataGridTopo != NULL)
 		{
@@ -928,31 +936,28 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 		}
 		return DisplayManager_State::DM_OUT_OF_MEMORY;
 	}
-	memset(pDataLocal, 0, file.size);
+	memset(*pData, 0, header.size);
 
 	//Start writing to data
-	//Write File header
-	memcpy(&pDataLocal[index], &file, sizeof(DisplayManager_FileHeader));
-	index += sizeof(DisplayManager_FileHeader);
+	//Write  header
+	memcpy(&(*pData)[index], &header, sizeof(DisplayManager_Header));
+	index += sizeof(DisplayManager_Header);
 
 	//Write Grid topology file header
-	memcpy(&pDataLocal[index], &gridTopoFile, sizeof(DisplayManager_File_GridTopo));
-	index += sizeof(DisplayManager_File_GridTopo);
+	memcpy(&(*pData)[index], &gridTopo, sizeof(DisplayManager_GridTopo));
+	index += sizeof(DisplayManager_GridTopo);
 	//Write Grid topology file data
-	memcpy(&pDataLocal[index], pDataGridTopo, dataLengthGridTopo);
+	memcpy(&(*pData)[index], pDataGridTopo, dataLengthGridTopo);
 	index += dataLengthGridTopo;
 
 	//Write Path Info file header
-	memcpy(&pDataLocal[index], &pathInfoFile, sizeof(DisplayManager_File_PathInfo));
-	index += sizeof(DisplayManager_File_PathInfo);
+	memcpy(&(*pData)[index], &pathInfo, sizeof(DisplayManager_PathInfo));
+	index += sizeof(DisplayManager_PathInfo);
 	//Write Path info file data
-	memcpy(&pDataLocal[index], pDataPathInfo, dataLengthPathInfo);
+	memcpy(&(*pData)[index], pDataPathInfo, dataLengthPathInfo);
 	index += dataLengthPathInfo;
-
-	//Save to file
-	if (!SaveToFile(pFilePath, pDataLocal, file.size))
-		result = DisplayManager_State::DM_SAVE_FILE_ERROR;
-
+	
+	*dataSize = header.size;
 	//clear data memory
 	if (pDataGridTopo != NULL)
 	{
@@ -963,7 +968,47 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	{
 		delete pDataPathInfo;
 		pDataPathInfo = NULL;
+	}	
+
+	return result;
+}
+
+DisplayManager_State DisplayManager::ReadFileToSetup(const char* pFilePath, NvU32* nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
+{
+	unsigned char* pData = NULL;
+	DisplayManager_State result = DisplayManager_State::DM_OK;	
+
+	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
+	result = ReadDataToSetup(pData, nPathInfoCount, pGetPathInfo, pGridCount, pGetGridTopo);
+
+	return result;
+}
+
+DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo)
+{
+	DisplayManager_State result = DisplayManager_State::DM_OK;
+	unsigned int dataSize = 0;
+	unsigned char *pDataLocal = NULL;
+
+	if (!nGridCount || pSetGridTopo == NULL)
+	{
+		return DisplayManager_State::DM_NO_GRID_TOPOS;
 	}
+	if (!nPathInfoCount || pSetPathInfo == NULL)
+	{
+		return DisplayManager_State::DM_NO_PATH_INFO;
+	}
+
+	result = SaveSetupToData(&dataSize, &pDataLocal, nPathInfoCount, pSetPathInfo, nGridCount, pSetGridTopo);
+	if (result == DisplayManager_State::DM_OK)
+	{
+		//Save to file
+		if (!SaveToFile(pFilePath, pDataLocal, dataSize))
+			result = DisplayManager_State::DM_SAVE_FILE_ERROR;
+	}
+	else 
+		result = DisplayManager_State::DM_SAVE_FILE_ERROR;
+	//clear data memory	
 	if (pDataLocal != NULL)
 	{
 		delete pDataLocal;
@@ -971,7 +1016,6 @@ DisplayManager_State DisplayManager::SaveSetupToFile(const char* pFilePath, NvU3
 	}
 
 	return result;
-	return DisplayManager_State::DM_OK;
 }
 
 DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, unsigned char* pData)
@@ -1214,7 +1258,7 @@ DisplayManager_State DisplayManager::GridTopoToData(NvU32 nGridCount, NV_MOSAIC_
 DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_DISPLAYCONFIG_PATH_INFO *pSetPathInfo, const char* pFilePath)
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
-	DisplayManager_File_PathInfo pathFile;
+	DisplayManager_PathInfo pathInfo;
 	unsigned char *pDataLocal = NULL;
 	unsigned char *pData = NULL;
 	unsigned int index = 0;
@@ -1238,25 +1282,25 @@ DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_
 	}
 
 	//Update file header info
-	memset(&pathFile, 0, sizeof(DisplayManager_File_PathInfo));
-	pathFile.header.fileType = NVAPI_FileType::pathInfo;
-	pathFile.pathCount = nSetPathCount;
+	memset(&pathInfo, 0, sizeof(DisplayManager_PathInfo));
+	pathInfo.header.fileType = NVAPI_DataType::pathInfo;
+	pathInfo.pathCount = nSetPathCount;
 
 	//Calculate size of file
-	pathFile.header.size += sizeof(DisplayManager_File_PathInfo);
-	pathFile.header.size += dataLength;
-	pDataLocal = new unsigned char[pathFile.header.size];
+	pathInfo.header.size += sizeof(DisplayManager_PathInfo);
+	pathInfo.header.size += dataLength;
+	pDataLocal = new unsigned char[pathInfo.header.size];
 	if (pDataLocal == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;
 
-	memset(pDataLocal, 0, pathFile.header.size);
+	memset(pDataLocal, 0, pathInfo.header.size);
 
 	//Start writing to data
-	memcpy(&pDataLocal[index], &pathFile, sizeof(DisplayManager_File_PathInfo));
-	index += sizeof(DisplayManager_File_PathInfo);
+	memcpy(&pDataLocal[index], &pathInfo, sizeof(DisplayManager_PathInfo));
+	index += sizeof(DisplayManager_PathInfo);
 
 	memcpy(&pDataLocal[index], pData, dataLength);
 	//Save to file
-	if (!SaveToFile(pFilePath, pDataLocal, pathFile.header.size))
+	if (!SaveToFile(pFilePath, pDataLocal, pathInfo.header.size))
 		result = DisplayManager_State::DM_SAVE_FILE_ERROR;
 
 	//clear data memory
@@ -1277,28 +1321,28 @@ DisplayManager_State DisplayManager::PathInfoToDataFile(NvU32 nSetPathCount, NV_
 DisplayManager_State DisplayManager::DataFileToPathInfo(NvU32 *pGetPathCount, NV_DISPLAYCONFIG_PATH_INFO **pGetPathInfo, const char* pFilePath)
 {
 	unsigned char* pData = NULL;
-	DisplayManager_File_PathInfo pathFile;
+	DisplayManager_PathInfo pathInfo;
 	unsigned int index = 0;
 
 	if (!ReadFromFile(pFilePath, &pData)) return DisplayManager_State::DM_READ_FILE_ERROR;
 
-	memcpy(&pathFile, pData, sizeof(DisplayManager_File_PathInfo));
-	index += sizeof(DisplayManager_File_PathInfo);
+	memcpy(&pathInfo, pData, sizeof(DisplayManager_PathInfo));
+	index += sizeof(DisplayManager_PathInfo);
 
-	if (pathFile.header.fileType != NVAPI_FileType::pathInfo)
+	if (pathInfo.header.fileType != NVAPI_DataType::pathInfo)
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
 
-	*pGetPathCount = pathFile.pathCount;
+	*pGetPathCount = pathInfo.pathCount;
 
-	return DataToPathInfo(pathFile.pathCount, pGetPathInfo, &pData[sizeof(DisplayManager_File_PathInfo)]);
+	return DataToPathInfo(pathInfo.pathCount, pGetPathInfo, &pData[sizeof(DisplayManager_PathInfo)]);
 }
 
 DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOSAIC_GRID_TOPO *pSetGridTopo, const char* pFilePath)
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
-	DisplayManager_File_GridTopo gridTopoFile;
+	DisplayManager_GridTopo gridTopo;
 	unsigned char *pDataLocal = NULL;
 	unsigned char *pData = NULL;
 	unsigned int index = 0;
@@ -1322,24 +1366,24 @@ DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOS
 	}
 
 	//Update file header info
-	memset(&gridTopoFile, 0, sizeof(DisplayManager_File_GridTopo));
-	gridTopoFile.header.fileType = NVAPI_FileType::gridTopo;
-	gridTopoFile.gridCount = nGridCount;
+	memset(&gridTopo, 0, sizeof(DisplayManager_GridTopo));
+	gridTopo.header.fileType = NVAPI_DataType::gridTopo;
+	gridTopo.gridCount = nGridCount;
 
 	//Calculate size of file
-	gridTopoFile.header.size += sizeof(DisplayManager_File_GridTopo);
-	gridTopoFile.header.size += dataLength;
-	pDataLocal = new unsigned char[gridTopoFile.header.size];
+	gridTopo.header.size += sizeof(DisplayManager_GridTopo);
+	gridTopo.header.size += dataLength;
+	pDataLocal = new unsigned char[gridTopo.header.size];
 	if (pDataLocal == NULL) return DisplayManager_State::DM_OUT_OF_MEMORY;
-	memset(pDataLocal, 0, gridTopoFile.header.size);
+	memset(pDataLocal, 0, gridTopo.header.size);
 
 	//Start writing to data
-	memcpy(&pDataLocal[index], &gridTopoFile, sizeof(DisplayManager_File_GridTopo));
-	index += sizeof(DisplayManager_File_GridTopo);
+	memcpy(&pDataLocal[index], &gridTopo, sizeof(DisplayManager_GridTopo));
+	index += sizeof(DisplayManager_GridTopo);
 
 	memcpy(&pDataLocal[index], pData, dataLength);
 	//Save to file
-	if (!SaveToFile(pFilePath, pDataLocal, gridTopoFile.header.size))
+	if (!SaveToFile(pFilePath, pDataLocal, gridTopo.header.size))
 		result = DisplayManager_State::DM_SAVE_FILE_ERROR;
 
 	//clear data memory
@@ -1360,23 +1404,23 @@ DisplayManager_State DisplayManager::GridTopoToDataFile(NvU32 nGridCount, NV_MOS
 DisplayManager_State DisplayManager::DataFileToGridTopo(NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo, const char* pFilePath)
 {
 	unsigned char* pData = NULL;
-	DisplayManager_File_GridTopo gridTopoFile;
+	DisplayManager_GridTopo gridTopo;
 	unsigned int index = 0;
 	NV_MOSAIC_GRID_TOPO *gridTopos = NULL;
 
 	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
 
-	memcpy(&gridTopoFile, pData, sizeof(DisplayManager_File_GridTopo));
-	index += sizeof(DisplayManager_File_GridTopo);
+	memcpy(&gridTopo, pData, sizeof(DisplayManager_GridTopo));
+	index += sizeof(DisplayManager_GridTopo);
 
-	if (gridTopoFile.header.fileType != NVAPI_FileType::gridTopo)
+	if (gridTopo.header.fileType != NVAPI_DataType::gridTopo)
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
 
-	*pGridCount = gridTopoFile.gridCount;
+	*pGridCount = gridTopo.gridCount;
 
-	return DataToGridTopo(gridTopoFile.gridCount, pGetGridTopo, &pData[index]);
+	return DataToGridTopo(gridTopo.gridCount, pGetGridTopo, &pData[index]);
 }
 
 bool DisplayManager::SaveToFile(const char* pFilePath, unsigned char* data, unsigned int dataLength)
@@ -1396,7 +1440,7 @@ bool DisplayManager::SaveToFile(const char* pFilePath, unsigned char* data, unsi
 
 bool DisplayManager::ReadFromFile(const char* pFilePath, unsigned char** data)
 {
-	DisplayManager_FileHeader fileHeader;
+	DisplayManager_Header fileHeader;
 	std::ifstream file;
 	file.open(pFilePath, std::ios::in | std::ios::binary);
 	char* buffer;
@@ -1408,7 +1452,7 @@ bool DisplayManager::ReadFromFile(const char* pFilePath, unsigned char** data)
 	if (file)
 	{
 		//Read only header
-		file.read((char*)&fileHeader, sizeof(DisplayManager_FileHeader));
+		file.read((char*)&fileHeader, sizeof(DisplayManager_Header));
 		file.seekg(0);
 		//Create buffer according to header.size
 		buffer = new char[fileHeader.size];
