@@ -195,6 +195,8 @@ DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
 	NvU32 gridCount;
 	NV_MOSAIC_GRID_TOPO *gridTopologies = NULL;
 	DisplayManager_State result = DisplayManager_State::DM_OK;
+
+	//Initialize NVAPI
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_NOT_INITIALIZED;
 
@@ -646,7 +648,8 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 
 DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
 {
-	NvU32 GridCount = 0;
+	DisplayManager_State result = DisplayManager_State::DM_OK;
+	NvU32 GridCount = 0u;
 	NV_MOSAIC_GRID_TOPO* pGridTopologies = NULL;
 
 	if (!nvapiLibLoaded)
@@ -681,8 +684,18 @@ DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GR
 	}
 	catch (...)
 	{
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
 	}
-	return DisplayManager_State::DM_OK;
+	finally
+	{
+		if (nvapiLibLoaded == false)
+		{
+			LoadNvapi();
+			result = DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
+		}
+	}
+	return result; 
 }
 
 DisplayManager_State DisplayManager::GetWindows(std::vector<WindowPos> *pGetWindowList)
@@ -715,6 +728,7 @@ DisplayManager_State DisplayManager::SetDisplayPaths(NvU32 nPathInfoCount, NV_DI
 	}
 	catch (...)
 	{
+		//TODO if it works
 	}
 	return DisplayManager_State::DM_OK;
 }
@@ -723,11 +737,13 @@ DisplayManager_State DisplayManager::SetGridTopos(NvU32 nGridCount, NV_MOSAIC_GR
 {
 	NvAPI_Status result = NVAPI_OK;
 	NvU32 nGetGridCount = 0;
-	NV_MOSAIC_GRID_TOPO* pGetGridTopo = NULL;
+	NV_MOSAIC_GRID_TOPO* pGetGridTopo = NULL;+
+
 	GetGridTopos(&nGetGridCount, &pGetGridTopo);
-	//Do comparison
+	
 	try
 	{
+		//Do comparison
 		if (CompareGridTopologies(nGetGridCount, pGetGridTopo, nGridCount, pSetGridTopo))
 		{
 			delete pGetGridTopo;
