@@ -38,7 +38,7 @@ namespace Display_Manager
 		}
 	}
 
-	array<System::Byte>^  Surround_Manager::SaveSetup()
+	array<System::Byte>^ Surround_Manager::SaveSetup()
 	{
 		unsigned char* pData = NULL;
 		unsigned int dataSize = 0;
@@ -57,8 +57,7 @@ namespace Display_Manager
 			return data;
 		}
 		else
-		{
-			//TODO add exception
+		{			
 			return nullptr;
 		}
 	}
@@ -133,17 +132,17 @@ namespace Display_Manager
 	{
 		state = displayManager->IsSurroundActive();
 		if (state == DisplayManager_State::DM_SURROUND_ACTIVE)
-			return surroundEnabled = true;
+			surroundEnabled = true;
 		else if (state == DisplayManager_State::DM_SURROUND_NOT_ACTIVE)
-			return surroundEnabled = false;
+			surroundEnabled = false;
 		else
 		{
-			surroundEnabled = false;
 			throw gcnew DisplayManager_Exception(state);
 		}
+		return surroundEnabled;
 	}
 
-	bool Surround_Manager::IsSurroundActive(array<System::Byte> ^ data)//TODO update this to data block
+	bool Surround_Manager::IsSurroundActive(array<System::Byte> ^ data)
 	{
 		if (data != nullptr)
 		{
@@ -156,10 +155,9 @@ namespace Display_Manager
 				surroundEnabled = false;
 			else
 			{
-				surroundEnabled = false;
 				throw gcnew DisplayManager_Exception(state);
 			}
-		}//TODO add message above as well
+		}
 		return surroundEnabled;
 	}
 }

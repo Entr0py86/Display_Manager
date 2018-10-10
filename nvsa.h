@@ -8,6 +8,7 @@ using namespace System;
 
 namespace Display_Manager
 {
+	//C++ wrapper class so that DispalyManager can be used by C#
 	public ref class Surround_Manager
 	{
 	public:
@@ -40,8 +41,7 @@ namespace Display_Manager
 		//Reposition windows
 		void ApplyWindowPositions();
 		//Minimize Windows
-		void MinimizeAllWindows();
-		
+		void MinimizeAllWindows();		
 
 	private:
 		DisplayManager_State state;

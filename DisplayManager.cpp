@@ -61,14 +61,21 @@ DisplayManager::~DisplayManager()
 
 DisplayManager_State DisplayManager::LoadNvapi()
 {
+	NV_MOSAIC_SUPPORTED_TOPO_INFO topoInfo;
 	DisplayManager_State ret;
 	NvAPI_Status result = NVAPI_OK;
 
-	//Reset API if already loaded
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }   
+	
 	if (nvapiLibLoaded)
 	{
 		return DisplayManager_State::DM_OK;
 	}
+
+    nvapiInUse = true;
 	try
 	{
 		result = NvAPI_Initialize();
@@ -91,6 +98,23 @@ DisplayManager_State DisplayManager::LoadNvapi()
 	catch (...)
 	{
 	}
+
+	if (nvapiLibLoaded)
+	{
+		//Force a check that there is a NVidia gpu in the system
+		ret = GetPhysicalGpus();
+		if (ret == DisplayManager_State::DM_OK)
+		{
+			//Check that the GPU is supported
+			topoInfo.version = NVAPI_MOSAIC_SUPPORTED_TOPO_INFO_VER;
+			result = NvAPI_Mosaic_GetSupportedTopoInfo(&topoInfo, NV_MOSAIC_TOPO_TYPE_BASIC);
+			if (result != NVAPI_OK)
+			{
+				ret = DisplayManager_State::DM_NVIDIA_GPU_NOT_SUPPORTED;
+			}
+		}
+	}
+    nvapiInUse = false;
 	return ret;
 }
 
@@ -98,8 +122,14 @@ DisplayManager_State DisplayManager::UnLoadNvapi()
 {
 	DisplayManager_State ret;
 
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    
 	if (!nvapiLibLoaded)
 		return DisplayManager_State::DM_OK;
+    nvapiInUse = true;
 	try
 	{
 		switch (NvAPI_Unload())
@@ -112,6 +142,7 @@ DisplayManager_State DisplayManager::UnLoadNvapi()
 			ret = DisplayManager_State::DM_ERROR;
 			break;
 		case NVAPI_API_IN_USE:
+			nvapiInUse = true;
 			ret = DisplayManager_State::DM_ERROR;
 			break;
 		}
@@ -119,11 +150,17 @@ DisplayManager_State DisplayManager::UnLoadNvapi()
 	catch (...)
 	{
 	}
+    nvapiInUse = false;
 	return ret;
 }
 
 DisplayManager_State DisplayManager::ReLoadNvapi()
 {
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+
 	DisplayManager_State ret = UnLoadNvapi();
 	if (ret != DisplayManager_State::DM_OK)
 		return ret;
@@ -133,10 +170,19 @@ DisplayManager_State DisplayManager::ReLoadNvapi()
 
 DisplayManager_State DisplayManager::SaveSetupToMemory(bool surround)
 {
+    DisplayManager_State ret = DisplayManager_State::DM_OK;
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	if (surround)
-		return SaveCurrentSurroundSetup();
+        ret = SaveCurrentSurroundSetup();
 	else
-		return SaveCurrentNormalSetup();
+        ret = SaveCurrentNormalSetup();
+
+    nvapiInUse = false;
+    return ret;
 }
 
 DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, unsigned char** pData)
@@ -148,17 +194,30 @@ DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, uns
 	NV_MOSAIC_GRID_TOPO *gridTopologies = NULL;
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+        if (LoadNvapi() != DisplayManager_State::DM_OK)
+        {
+            nvapiInUse = false;
+            return DisplayManager_State::DM_NOT_INITIALIZED;
+        }
+	}
 
 	if (GetPhysicalGpus() != DisplayManager_State::DM_OK)
 	{
+        nvapiInUse = false;
 		return DisplayManager_State::DM_GET_GPU_ERROR;
 	}
 
 	if ((result = GetDisplayPaths(&pathCount, &pathInfo)) != DisplayManager_State::DM_OK)
 	{
 		FreePathInfo(pathCount, pathInfo);
+        nvapiInUse = false;
 		return result;
 	}
 
@@ -166,26 +225,47 @@ DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, uns
 	{
 		if (nm_gridTopologies != NULL)
 			delete nm_gridTopologies;
+        nvapiInUse = false;
 		return result;
 	}
-
+    nvapiInUse = false;
 	return SaveSetupToData(dataSize, pData, pathCount, pathInfo, gridCount, gridTopologies);
 }
 
 DisplayManager_State DisplayManager::LoadSetup(bool surround, unsigned char* pData)
 {
+    DisplayManager_State ret = DisplayManager_State::DM_OK;
+
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	if (surround)
-		return LoadSurroundSetup(pData);
+        ret = LoadSurroundSetup(pData);
 	else
-		return LoadNormalSetup(pData);
+        ret  = LoadNormalSetup(pData);
+
+    nvapiInUse = false;
+    return ret;
 }
 
 DisplayManager_State DisplayManager::ApplySetup(bool surround)
 {
+    DisplayManager_State ret = DisplayManager_State::DM_OK;
+
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
+
 	if (surround)
-		return ApplySurroundSetup();
+        ret = ApplySurroundSetup();
 	else
-		return ApplyNormalSetup();
+        ret = ApplyNormalSetup();
+    nvapiInUse = false;
+    return ret;
 }
 
 DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
@@ -196,33 +276,55 @@ DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
 	NV_MOSAIC_GRID_TOPO *gridTopologies = NULL;
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	//Initialize NVAPI
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+        if (LoadNvapi() != DisplayManager_State::DM_OK)
+        {
+            nvapiInUse = false;
+            return DisplayManager_State::DM_NOT_INITIALIZED;
+        }
+	}
 
 
 	if ((result = ReadDataToSetup(pData, &pathCount, &pathInfo, &gridCount, &gridTopologies)) != DisplayManager_State::DM_OK)
 	{
 		FreePathInfo(pathCount, pathInfo);
+        nvapiInUse = false;
 		return result;
 	}
 
 	result = SetGridTopos(gridCount, gridTopologies);
-	if (result != DisplayManager_State::DM_OK)
-		return result;
+    if (result != DisplayManager_State::DM_OK)
+    {
+        nvapiInUse = false;
+        return result;
+    }
 
 	result = SetDisplayPaths(pathCount, pathInfo);
-	if (result != DisplayManager_State::DM_OK)
-		return result;
-
+    if (result != DisplayManager_State::DM_OK)
+    {
+        nvapiInUse = false;
+        return result;
+    }
+    nvapiInUse = false;
 	return DisplayManager_State::DM_OK;
 }
 
 DisplayManager_State DisplayManager::SaveCurrentNormalSetup()
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
+
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if (LoadNvapi() != DisplayManager_State::DM_OK)
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 
 	if (GetPhysicalGpus() != DisplayManager_State::DM_OK)
 	{
@@ -248,8 +350,12 @@ DisplayManager_State DisplayManager::SaveCurrentNormalSetup()
 DisplayManager_State DisplayManager::SaveCurrentSurroundSetup()
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
+
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if (LoadNvapi() != DisplayManager_State::DM_OK)
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 
 	if (GetPhysicalGpus() != DisplayManager_State::DM_OK)
 	{
@@ -365,22 +471,37 @@ DisplayManager_State DisplayManager::IsSurroundActive()
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 	NV_MOSAIC_GRID_TOPO *pGridTopos = NULL;
 
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+        if (LoadNvapi() != DisplayManager_State::DM_OK)
+        {
+            nvapiInUse = false;
+            return DisplayManager_State::DM_NOT_INITIALIZED;
+        }
+	}
 
 	result = GetGridTopos(&gridCount, &pGridTopos);
 	if (result != DisplayManager_State::DM_OK)
 	{
+        nvapiInUse = false;
 		return result;
 	}
 	
 	for (NvU32 i = 0; i < gridCount; i++)
 	{
 		//If either is larger than 1 then two or more screens have been set into a surround setup
-		if (pGridTopos[i].columns > 1 || pGridTopos[i].rows > 1)
-			return DisplayManager_State::DM_SURROUND_ACTIVE; //In surround mode
+        if (pGridTopos[i].columns > 1 || pGridTopos[i].rows > 1)
+        {
+            nvapiInUse = false;
+            return DisplayManager_State::DM_SURROUND_ACTIVE; //In surround mode
+        }
 	}
-
+    nvapiInUse = false;
 	//Not in surround
 	return DisplayManager_State::DM_SURROUND_NOT_ACTIVE;
 }
@@ -397,18 +518,31 @@ DisplayManager_State DisplayManager::IsSurroundActive(unsigned char* pData)
 
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 
+    if (nvapiInUse)
+    {
+        return DisplayManager_State::DM_BUSY;
+    }
+    nvapiInUse = true;
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+        if (LoadNvapi() != DisplayManager_State::DM_OK)
+        {
+            nvapiInUse = false;
+            return DisplayManager_State::DM_NOT_INITIALIZED;
+        }
+	}
 
 	result = ReadDataToSetup(pData, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos);
 	if (result != DisplayManager_State::DM_OK)
 	{
+        nvapiInUse = false;
 		return result;
 	}
 
 	result = GetGridTopos(&gridCount, &pGridTopos);
 	if (result != DisplayManager_State::DM_OK)
 	{
+        nvapiInUse = false;
 		return result;
 	}
 
@@ -417,9 +551,10 @@ DisplayManager_State DisplayManager::IsSurroundActive(unsigned char* pData)
 		//In surround mode
 		delete pFileGridTopos;
 		FreePathInfo(filePathCount, filePathInfo);
+        nvapiInUse = false;
 		return DisplayManager_State::DM_SURROUND_ACTIVE;
 	}
-
+    nvapiInUse = false;
 	//Not in surround
 	return DisplayManager_State::DM_SURROUND_NOT_ACTIVE;
 }
@@ -496,16 +631,24 @@ bool DisplayManager::CompareGridTopologies(NvU32 nGridCount1, NV_MOSAIC_GRID_TOP
 
 DisplayManager_State DisplayManager::GetPhysicalGpus()
 {
+	NvAPI_Status nvapiReturn;
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if (LoadNvapi() != DisplayManager_State::DM_OK)
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 
 	try
 	{
 		if (physicalGpuCount == 0)
 		{
 			memset(hPhysicalGpu, 0, sizeof(NvPhysicalGpuHandle) * NVAPI_MAX_PHYSICAL_GPUS);
-			if (NvAPI_EnumPhysicalGPUs(hPhysicalGpu, &physicalGpuCount) == NVAPI_OK)
+			nvapiReturn = NvAPI_EnumPhysicalGPUs(hPhysicalGpu, &physicalGpuCount);
+			if (nvapiReturn == NVAPI_OK)
 				return DisplayManager_State::DM_OK;
+			else if (nvapiReturn == NVAPI_NVIDIA_DEVICE_NOT_FOUND)
+				return DisplayManager_State::DM_NO_NVIDIA_GPU_ERROR;
+
 		}
 		else
 		{
@@ -514,6 +657,8 @@ DisplayManager_State DisplayManager::GetPhysicalGpus()
 	}
 	catch (...)
 	{
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
 	}
 	return DisplayManager_State::DM_GET_GPU_ERROR;
 
@@ -521,12 +666,16 @@ DisplayManager_State DisplayManager::GetPhysicalGpus()
 
 DisplayManager_State DisplayManager::GetConnectedDisplays(NvU32* nGetDisplayIdCount, NV_GPU_DISPLAYIDS** pGetDisplayIds)
 {
+	DisplayManager_State result = DisplayManager_State::DM_OK;
 	NvU32 DisplayGpuIndex = 0;
 	NvU32 nDisplayIds = 0;
 	NV_GPU_DISPLAYIDS* pDisplayIds = NULL;
 
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if (LoadNvapi() != DisplayManager_State::DM_OK)
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 	try
 	{
 		if (physicalGpuCount == 0)
@@ -540,13 +689,16 @@ DisplayManager_State DisplayManager::GetConnectedDisplays(NvU32* nGetDisplayIdCo
 			if ((NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[GpuIndex], pDisplayIds, &nDisplayIds, 0) == NVAPI_OK) && nDisplayIds)
 			{
 				DisplayGpuIndex = GpuIndex;
-				pDisplayIds = new NV_GPU_DISPLAYIDS[nDisplayIds * sizeof(NV_GPU_DISPLAYIDS)];
+				pDisplayIds = new NV_GPU_DISPLAYIDS[nDisplayIds];
 				if (pDisplayIds)
 				{
 					memset(pDisplayIds, 0, nDisplayIds * sizeof(NV_GPU_DISPLAYIDS));
 					pDisplayIds[GpuIndex].version = NV_GPU_DISPLAYIDS_VER;
 					if (NvAPI_GPU_GetConnectedDisplayIds(hPhysicalGpu[DisplayGpuIndex], pDisplayIds, &nDisplayIds, 0) != NVAPI_OK)
-						return DisplayManager_State::DM_GET_DISPLAY_ERROR;
+					{
+						result = DisplayManager_State::DM_GET_DISPLAY_ERROR;
+						break;
+					}
 				}
 			}
 		}
@@ -554,11 +706,14 @@ DisplayManager_State DisplayManager::GetConnectedDisplays(NvU32* nGetDisplayIdCo
 	}
 	catch (...)
 	{
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
+		result = DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
 	}
 	*pGetDisplayIds = pDisplayIds;
 	*nGetDisplayIdCount = nDisplayIds;
 
-	return DisplayManager_State::DM_OK;
+	return result;
 }
 
 DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo)
@@ -567,15 +722,19 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 	NV_DISPLAYCONFIG_PATH_INFO *path_info = NULL;
 
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if (LoadNvapi() != DisplayManager_State::DM_OK)
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 
 	try
 	{
 		// Retrieve the display path information
 
-		if (NvAPI_DISP_GetDisplayConfig(&path_count, NULL) != NVAPI_OK)    return DisplayManager_State::DM_GET_PATHS_ERROR;
+		if (NvAPI_DISP_GetDisplayConfig(&path_count, NULL) != NVAPI_OK)    
+			return DisplayManager_State::DM_GET_PATHS_ERROR;
 
-		path_info = new NV_DISPLAYCONFIG_PATH_INFO[path_count * sizeof(NV_DISPLAYCONFIG_PATH_INFO)];
+		path_info = new NV_DISPLAYCONFIG_PATH_INFO[path_count];
 		if (path_info == NULL)
 		{
 			return DisplayManager_State::DM_OUT_OF_MEMORY;
@@ -600,13 +759,13 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 
 			if (path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER1 || path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER2)
 			{
-				path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO[sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+				path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO();
 			}
 			else
 			{
 
 #ifdef NV_DISPLAYCONFIG_PATH_INFO_VER3
-				path_info[i].sourceModeInfo = new (NV_DISPLAYCONFIG_SOURCE_MODE_INFO[path_info[i].sourceModeInfoCount * sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+				path_info[i].sourceModeInfo = new (NV_DISPLAYCONFIG_SOURCE_MODE_INFO[path_info[i].sourceModeInfoCount];
 #endif
 
 			}
@@ -617,7 +776,7 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 			memset(path_info[i].sourceModeInfo, 0, sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO));
 
 			// Allocate the target array
-			path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO)];
+			path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount];
 			if (path_info[i].targetInfo == NULL)
 			{
 				return DisplayManager_State::DM_OUT_OF_MEMORY;
@@ -626,7 +785,7 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 			memset(path_info[i].targetInfo, 0, path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO));
 			for (NvU32 j = 0; j < path_info[i].targetInfoCount; j++)
 			{
-				path_info[i].targetInfo[j].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO[sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO)];
+				path_info[i].targetInfo[j].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO();
 				memset(path_info[i].targetInfo[j].details, 0, sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO));
 				path_info[i].targetInfo[j].details->version = NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO_VER;
 			}
@@ -642,6 +801,9 @@ DisplayManager_State DisplayManager::GetDisplayPaths(NvU32* pathInfoCount, NV_DI
 	}
 	catch (...)
 	{
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
+		return DisplayManager_State::DM_GET_PATHS_ERROR;
 	}
 	return DisplayManager_State::DM_OK;
 }
@@ -653,16 +815,20 @@ DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GR
 	NV_MOSAIC_GRID_TOPO* pGridTopologies = NULL;
 
 	if (!nvapiLibLoaded)
-		return DisplayManager_State::DM_NOT_INITIALIZED;
+	{
+		if(LoadNvapi() != DisplayManager_State::DM_OK)		
+			return DisplayManager_State::DM_NOT_INITIALIZED;
+	}
 
 	try
-	{//TODO look for a method that checks the display is not busy or of the sort
+	{
+		NvAPI_Status retVal = NvAPI_Mosaic_EnumDisplayGrids(NULL, &GridCount);
 		if (NvAPI_Mosaic_EnumDisplayGrids(NULL, &GridCount) != NVAPI_OK)
 		{
 			return DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
 		}
 
-		pGridTopologies = new NV_MOSAIC_GRID_TOPO[GridCount * sizeof(NV_MOSAIC_GRID_TOPO)];
+		pGridTopologies = new NV_MOSAIC_GRID_TOPO[GridCount];
 		if (pGridTopologies == NULL)
 		{
 			return DisplayManager_State::DM_OUT_OF_MEMORY;
@@ -686,14 +852,7 @@ DisplayManager_State DisplayManager::GetGridTopos(NvU32* gridCount, NV_MOSAIC_GR
 	{
 		UnLoadNvapi();
 		nvapiLibLoaded = false;
-	}
-	finally
-	{
-		if (nvapiLibLoaded == false)
-		{
-			LoadNvapi();
-			result = DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
-		}
+		result = DisplayManager_State::DM_GET_GRID_TOPO_ERROR;
 	}
 	return result; 
 }
@@ -728,7 +887,9 @@ DisplayManager_State DisplayManager::SetDisplayPaths(NvU32 nPathInfoCount, NV_DI
 	}
 	catch (...)
 	{
-		//TODO if it works
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
+		return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
 	}
 	return DisplayManager_State::DM_OK;
 }
@@ -737,10 +898,10 @@ DisplayManager_State DisplayManager::SetGridTopos(NvU32 nGridCount, NV_MOSAIC_GR
 {
 	NvAPI_Status result = NVAPI_OK;
 	NvU32 nGetGridCount = 0;
-	NV_MOSAIC_GRID_TOPO* pGetGridTopo = NULL;+
+	NV_MOSAIC_GRID_TOPO* pGetGridTopo = NULL;
 
 	GetGridTopos(&nGetGridCount, &pGetGridTopo);
-	
+
 	try
 	{
 		//Do comparison
@@ -787,6 +948,9 @@ DisplayManager_State DisplayManager::SetGridTopos(NvU32 nGridCount, NV_MOSAIC_GR
 	}
 	catch (...)
 	{
+		UnLoadNvapi();
+		nvapiLibLoaded = false;
+		return DisplayManager_State::DM_DISPLAY_CONFIG_NOT_SET;
 	}
 	return DisplayManager_State::DM_OK;
 }
@@ -1044,7 +1208,7 @@ DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DIS
 		delete(*pGetPathInfo);
 	}
 
-	path_info = new NV_DISPLAYCONFIG_PATH_INFO[nPathInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_INFO)];
+	path_info = new NV_DISPLAYCONFIG_PATH_INFO[nPathInfoCount];
 	memset(path_info, 0, nPathInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_INFO));
 
 	for (NvU32 i = 0; i < nPathInfoCount; i++)
@@ -1058,7 +1222,7 @@ DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DIS
 
 		if (path_info[i].targetInfoCount > 0)
 		{
-			path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount * sizeof(NV_DISPLAYCONFIG_PATH_TARGET_INFO)];
+			path_info[i].targetInfo = new NV_DISPLAYCONFIG_PATH_TARGET_INFO[path_info[i].targetInfoCount];
 			if (path_info[i].targetInfo == NULL)
 			{
 				return DisplayManager_State::DM_OUT_OF_MEMORY;
@@ -1072,7 +1236,7 @@ DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DIS
 				memcpy(&path_info[i].targetInfo[u].displayId, &pData[index], sizeof(NvU32));
 				index += sizeof(NvU32);
 				//Create data area for detailed info
-				path_info[i].targetInfo[u].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO[sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO)];
+				path_info[i].targetInfo[u].details = new NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO();
 				memset(path_info[i].targetInfo[u].details, 0, sizeof(NV_DISPLAYCONFIG_PATH_ADVANCED_TARGET_INFO));
 				if (path_info[i].targetInfo[u].details == NULL)
 				{
@@ -1090,7 +1254,7 @@ DisplayManager_State DisplayManager::DataToPathInfo(NvU32 nPathInfoCount, NV_DIS
 
 		if (path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER1 || path_info[i].version == NV_DISPLAYCONFIG_PATH_INFO_VER2)
 		{
-			path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO[sizeof(NV_DISPLAYCONFIG_SOURCE_MODE_INFO)];
+			path_info[i].sourceModeInfo = new NV_DISPLAYCONFIG_SOURCE_MODE_INFO();
 			if (path_info[i].sourceModeInfo == NULL)
 			{
 				return DisplayManager_State::DM_OUT_OF_MEMORY;

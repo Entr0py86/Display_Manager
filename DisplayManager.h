@@ -17,6 +17,8 @@ public enum class DisplayManager_State : int
 	DM_LIB_NOT_FOUND,
 	DM_NOT_INITIALIZED,
 	DM_GET_GPU_ERROR,
+	DM_NO_NVIDIA_GPU_ERROR,
+	DM_NVIDIA_GPU_NOT_SUPPORTED,
 	DM_GET_DISPLAY_ERROR,
 	DM_GET_PATHS_ERROR,
 	DM_GET_GRID_TOPO_ERROR,
@@ -30,13 +32,17 @@ public enum class DisplayManager_State : int
 	DM_READ_FILE_ERROR,
 	DM_INVALID_ARGUMENT,
 	DM_GRID_TOPO_INVALID,
+    DM_BUSY,
 };
 
+// Display manager is a class that handles all NVAPI calls.
+// It saves and loads surround configurations. 
 class DisplayManager
 {
 public:
 
-	bool nvapiLibLoaded = false;
+    bool nvapiLibLoaded = false;
+	bool nvapiInUse = false;
 	//if window error is returned as state then the error will be populated here
 	DWORD windowsError = 0;
 

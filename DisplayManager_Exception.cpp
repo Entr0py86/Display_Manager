@@ -38,6 +38,12 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
 	case DisplayManager_State::DM_GET_GPU_ERROR:
 		Message = "Could not get GPU information";
 		break;
+	case DisplayManager_State::DM_NO_NVIDIA_GPU_ERROR:
+		Message = "No NVidia GPU in System";
+		break;
+	case DisplayManager_State::DM_NVIDIA_GPU_NOT_SUPPORTED:
+		Message = "The NVidia card in the system is not supported";
+		break;
 	case DisplayManager_State::DM_GET_DISPLAY_ERROR:
 		Message = "Could not get information about attached displays";
 		break;
@@ -77,6 +83,9 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
 	case DisplayManager_State::DM_GRID_TOPO_INVALID:
 		Message = "Invalid grid setup";
 		break;
+    case DisplayManager_State::DM_BUSY:
+        Message = "Display Manager busy with operation";
+        break;
 	default:
 		Message = "ERROR";
 		break;
