@@ -65,6 +65,7 @@ DisplayManager_State DisplayManager::LoadNvapi()
 	DisplayManager_State ret;
 	NvAPI_Status result = NVAPI_OK;
 
+	memset(&topoInfo, 0, sizeof(NV_MOSAIC_SUPPORTED_TOPO_INFO));
     if (nvapiInUse)
     {
         return DisplayManager_State::DM_BUSY;
@@ -107,10 +108,30 @@ DisplayManager_State DisplayManager::LoadNvapi()
 		{
 			//Check that the GPU is supported
 			topoInfo.version = NVAPI_MOSAIC_SUPPORTED_TOPO_INFO_VER;
-			result = NvAPI_Mosaic_GetSupportedTopoInfo(&topoInfo, NV_MOSAIC_TOPO_TYPE_BASIC);
-			if (result != NVAPI_OK)
-			{
-				ret = DisplayManager_State::DM_NVIDIA_GPU_NOT_SUPPORTED;
+			result = NvAPI_Mosaic_GetSupportedTopoInfo(&topoInfo, NV_MOSAIC_TOPO_TYPE_ALL);
+            switch(result)
+            {
+            case NVAPI_OK:
+                ret = DisplayManager_State::DM_OK;
+                break;
+            case NVAPI_NOT_SUPPORTED:
+                ret = DisplayManager_State::DM_NVIDIA_GPU_NOT_SUPPORTED;
+                break;
+            case NVAPI_ERROR:
+                ret = DisplayManager_State::DM_ERROR;
+                if (topoInfo.topoBriefsCount > 0)
+                {
+                    for (NvU32 i = 0; i < topoInfo.topoBriefsCount; i++)
+                    {
+                        if (topoInfo.topoBriefs[i].isPossible)
+                        {
+                            ret = DisplayManager_State::DM_OK;
+                        }
+                    }
+                }                
+                break;
+            default:
+                break;
 			}
 		}
 	}
