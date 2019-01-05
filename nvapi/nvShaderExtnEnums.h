@@ -71,8 +71,4 @@
 #define NV_EXTN_OP_FP16_ATOMIC                             12
 #define NV_EXTN_OP_FP32_ATOMIC                             13
 
-#define NV_EXTN_OP_UINT64_ATOMIC                           20
-
-#define NV_EXTN_OP_GET_SHADING_RATE                        30
-#define NV_EXTN_OP_VPRS_EVAL_ATTRIB_AT_SAMPLE              51
-#define NV_EXTN_OP_VPRS_EVAL_ATTRIB_SNAPPED                52
+#define NV_EXTN_OP_TYPED_UAV_LOAD                          14

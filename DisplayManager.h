@@ -2,9 +2,12 @@
 #include <stdio.h>
 #include <tchar.h>
 #include <windows.h>
+#include <windowsx.h>
+#include <d3d9.h>
 #include <fstream> 
 #include <vector>
 #include "nvapi\nvapi.h"
+#include "nvapi\nvapi_lite_sli.h"
 #include "..\includes\defines.h"
 
 public enum class DisplayManager_State : int
@@ -33,6 +36,10 @@ public enum class DisplayManager_State : int
 	DM_INVALID_ARGUMENT,
 	DM_GRID_TOPO_INVALID,
     DM_BUSY,
+	DM_SLI_ENABLED,
+	DM_SLI_DISABLED,
+	DM_SLI_D3DEVICE_ERROR,
+	DM_SLI_APPLY_ERROR,
 };
 
 // Display manager is a class that handles all NVAPI calls.
@@ -75,19 +82,21 @@ public:
 	//Check whether surround is already active
 	DisplayManager_State IsSurroundActive();
 	//Check whether surround from file is already active
-	DisplayManager_State IsSurroundActive(unsigned char* pData);
+	DisplayManager_State IsSurroundActive(unsigned char* pData);	
 	
-private:
+private:	
 	std::vector<WindowPos> windowPositions;
 
 	NV_DISPLAYCONFIG_FLAGS flags = (NV_DISPLAYCONFIG_FLAGS)(NV_DISPLAYCONFIG_SAVE_TO_PERSISTENCE | NV_DISPLAYCONFIG_DRIVER_RELOAD_ALLOWED | NV_DISPLAYCONFIG_FORCE_MODE_ENUMERATION);
 
+	bool nm_sliEnabled = false;
 	NvU32 nm_pathCount = 0;
 	NV_DISPLAYCONFIG_PATH_INFO *nm_pathInfo = NULL;
 
 	NvU32 nm_gridCount;
 	NV_MOSAIC_GRID_TOPO *nm_gridTopologies = NULL;
 
+	bool sr_sliEnabled = false;
 	NvU32 sr_pathCount = 0;
 	NV_DISPLAYCONFIG_PATH_INFO *sr_pathInfo = NULL;		
 
@@ -99,6 +108,11 @@ private:
 
 	NvU32 nDisplayIds = 0;
 	NV_GPU_DISPLAYIDS* pDisplayIds = NULL;
+
+	//Direct 3d pointers
+	HWND d3dHWnd = NULL;
+	IDirect3D9 * d3d = NULL;
+	IDirect3DDevice9 *d3ddev = NULL;
 		
 	void FreePathInfo(NvU32 pPathCount, NV_DISPLAYCONFIG_PATH_INFO *pPathInfo);
 
@@ -146,7 +160,7 @@ private:
 	DisplayManager_State SetWindows(std::vector<WindowPos> *pSetWindowList);
 
 	//Data Parsers
-	DisplayManager_State ReadDataToSetup(unsigned char* data, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo);
+	DisplayManager_State ReadDataToSetup(unsigned char* data, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo, bool* pSliEnabled);
 	DisplayManager_State SaveSetupToData(unsigned int* dataSize, unsigned char** data, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo);
 
 	//Setup to File Handlers
@@ -158,7 +172,7 @@ private:
 		PathInfoFileHeader
 		PathInfoData
 	*/
-	DisplayManager_State ReadFileToSetup(const char* pFilePath, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo);
+	DisplayManager_State ReadFileToSetup(const char* pFilePath, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo, bool* pSliEnabled);
 	DisplayManager_State SaveSetupToFile(const char* pFilePath, NvU32 nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO* pSetPathInfo, NvU32 nGridCount, NV_MOSAIC_GRID_TOPO* pSetGridTopo);
 
 	//Data handlers to type
@@ -179,5 +193,10 @@ private:
 	//File Handlers
 	bool SaveToFile(const char* filePath, unsigned char* data, unsigned int dataLength);
 	bool ReadFromFile(const char* filePath, unsigned char** data);
+
+	DisplayManager_State CreateDirect3dDevice();
+	void DestroyDirect3dDevice();	
+	//Get Current sli state
+	DisplayManager_State Get_SLI_State();
 };
 

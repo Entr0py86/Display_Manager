@@ -86,6 +86,12 @@ void DisplayManager_Exception::StateToErrorMessage(DisplayManager_State errorSta
     case DisplayManager_State::DM_BUSY:
         Message = "Display Manager busy with operation";
         break;
+	case DisplayManager_State::DM_SLI_D3DEVICE_ERROR:
+		Message = "Creating Direct3d Device Error";
+		break;
+	case DisplayManager_State::DM_SLI_APPLY_ERROR:
+		Message = "Error applying SLI mode";
+		break;
 	default:
 		Message = "ERROR";
 		break;

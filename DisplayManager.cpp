@@ -295,6 +295,8 @@ DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
 	NV_DISPLAYCONFIG_PATH_INFO *pathInfo = NULL;
 	NvU32 gridCount;
 	NV_MOSAIC_GRID_TOPO *gridTopologies = NULL;
+	bool sliEnabled = false;
+	IMPLICIT_SLI_CONTROL sliControl;
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 
     if (nvapiInUse)
@@ -310,14 +312,27 @@ DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
             nvapiInUse = false;
             return DisplayManager_State::DM_NOT_INITIALIZED;
         }
-	}
+	}	
 
-
-	if ((result = ReadDataToSetup(pData, &pathCount, &pathInfo, &gridCount, &gridTopologies)) != DisplayManager_State::DM_OK)
+	if ((result = ReadDataToSetup(pData, &pathCount, &pathInfo, &gridCount, &gridTopologies, &sliEnabled)) != DisplayManager_State::DM_OK)
 	{
 		FreePathInfo(pathCount, pathInfo);
         nvapiInUse = false;
 		return result;
+	}
+
+	if (physicalGpuCount > 1)
+	{
+		if (sliEnabled)
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::ENABLE_IMPLICIT_SLI;
+		}
+		else
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::DISABLE_IMPLICIT_SLI;
+		}
+		if (NvAPI_D3D_ImplicitSLIControl(sliControl) != NVAPI_OK)
+			return DisplayManager_State::DM_SLI_APPLY_ERROR;
 	}
 
 	result = SetGridTopos(gridCount, gridTopologies);
@@ -334,6 +349,7 @@ DisplayManager_State DisplayManager::ApplySetup(unsigned char* pData)
         return result;
     }
     nvapiInUse = false;
+
 	return DisplayManager_State::DM_OK;
 }
 
@@ -421,27 +437,42 @@ DisplayManager_State DisplayManager::SaveSurroundSetup(unsigned int* dataSize, u
 
 DisplayManager_State DisplayManager::LoadNormalSetup(const char* pFilePath)
 {
-	return ReadFileToSetup(pFilePath, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies);
+	return ReadFileToSetup(pFilePath, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies, &nm_sliEnabled);
 }
 
 DisplayManager_State DisplayManager::LoadSurroundSetup(const char* pFilePath)
 {
-	return ReadFileToSetup(pFilePath, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies);
+	return ReadFileToSetup(pFilePath, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies, &sr_sliEnabled);
 }
 
 DisplayManager_State DisplayManager::LoadNormalSetup(unsigned char* pData)
 {
-	return ReadDataToSetup(pData, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies);
+	return ReadDataToSetup(pData, &nm_pathCount, &nm_pathInfo, &nm_gridCount, &nm_gridTopologies, &nm_sliEnabled);
 }
 
 DisplayManager_State DisplayManager::LoadSurroundSetup(unsigned char* pData)
 {
-	return ReadDataToSetup(pData, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies);
+	return ReadDataToSetup(pData, &sr_pathCount, &sr_pathInfo, &sr_gridCount, &sr_gridTopologies, &sr_sliEnabled);
 }
 
 DisplayManager_State DisplayManager::ApplyNormalSetup()
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
+	IMPLICIT_SLI_CONTROL sliControl;
+
+	if (physicalGpuCount > 1)
+	{
+		if (nm_sliEnabled)
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::ENABLE_IMPLICIT_SLI;
+		}
+		else
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::DISABLE_IMPLICIT_SLI;
+		}
+		if (NvAPI_D3D_ImplicitSLIControl(sliControl) != NVAPI_OK)
+			return DisplayManager_State::DM_SLI_APPLY_ERROR;
+	}
 
 	result = SetGridTopos(nm_gridCount, nm_gridTopologies);
 	if (result != DisplayManager_State::DM_OK)
@@ -457,6 +488,21 @@ DisplayManager_State DisplayManager::ApplyNormalSetup()
 DisplayManager_State DisplayManager::ApplySurroundSetup()
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
+	IMPLICIT_SLI_CONTROL sliControl;
+
+	if (physicalGpuCount > 1)
+	{
+		if (sr_sliEnabled)
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::ENABLE_IMPLICIT_SLI;
+		}
+		else
+		{
+			sliControl = IMPLICIT_SLI_CONTROL::DISABLE_IMPLICIT_SLI;
+		}
+		if (NvAPI_D3D_ImplicitSLIControl(sliControl) != NVAPI_OK)
+			return DisplayManager_State::DM_SLI_APPLY_ERROR;
+	}
 
 	result = SetGridTopos(sr_gridCount, sr_gridTopologies);
 	if (result != DisplayManager_State::DM_OK)
@@ -482,7 +528,9 @@ DisplayManager_State DisplayManager::ApplyWindowPositions()
 DisplayManager_State DisplayManager::MinimizeAllWindows()
 {
 	HWND lHwnd = FindWindow(L"Shell_TrayWnd", NULL);
+
 	SendMessage(lHwnd, WM_COMMAND, MIN_ALL, 0);
+
 	return DisplayManager_State::DM_OK;
 }
 
@@ -532,6 +580,7 @@ DisplayManager_State DisplayManager::IsSurroundActive(unsigned char* pData)
 	NvU32 gridCount = 0;
 	NV_MOSAIC_GRID_TOPO *pGridTopos = NULL;
 
+	bool sliEnabled;
 	NvU32 filePathCount = 0;
 	NV_DISPLAYCONFIG_PATH_INFO *filePathInfo = NULL;
 	NvU32 fileGridCount = 0;
@@ -553,7 +602,7 @@ DisplayManager_State DisplayManager::IsSurroundActive(unsigned char* pData)
         }
 	}
 
-	result = ReadDataToSetup(pData, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos);
+	result = ReadDataToSetup(pData, &filePathCount, &filePathInfo, &fileGridCount, &pFileGridTopos, &sliEnabled);
 	if (result != DisplayManager_State::DM_OK)
 	{
         nvapiInUse = false;
@@ -996,7 +1045,7 @@ DisplayManager_State DisplayManager::SetWindows(std::vector<WindowPos> *pSetWind
 	return result;
 }
 
-DisplayManager_State DisplayManager::ReadDataToSetup(unsigned char* pData, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
+DisplayManager_State DisplayManager::ReadDataToSetup(unsigned char* pData, NvU32* pPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo, bool* pSliEnabled)
 {
 	DisplayManager_State result = DisplayManager_State::DM_OK;
 	DisplayManager_Header header;
@@ -1014,6 +1063,8 @@ DisplayManager_State DisplayManager::ReadDataToSetup(unsigned char* pData, NvU32
 	{
 		return DisplayManager_State::DM_INCORRECT_FILE_TYPE;
 	}
+
+	*pSliEnabled = header.sli_enabled;
 	//Read GridTopo Header
 	memcpy(&gridTopo, &pData[index], sizeof(DisplayManager_GridTopo));
 	index += sizeof(DisplayManager_GridTopo);
@@ -1071,6 +1122,12 @@ DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, uns
 	//Update file header info
 	memset(&header, 0, sizeof(DisplayManager_Header));
 	header.fileType = NVAPI_DataType::combined;
+	//Get current sli config 
+	result = Get_SLI_State();
+	if(result == DisplayManager_State::DM_SLI_ENABLED)
+		header.sli_enabled = true;
+	else
+		header.sli_enabled = false;
 	header.size += sizeof(DisplayManager_Header);
 
 	//Create Data from structs
@@ -1174,13 +1231,13 @@ DisplayManager_State DisplayManager::SaveSetupToData(unsigned int* dataSize, uns
 	return result;
 }
 
-DisplayManager_State DisplayManager::ReadFileToSetup(const char* pFilePath, NvU32* nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo)
+DisplayManager_State DisplayManager::ReadFileToSetup(const char* pFilePath, NvU32* nPathInfoCount, NV_DISPLAYCONFIG_PATH_INFO** pGetPathInfo, NvU32* pGridCount, NV_MOSAIC_GRID_TOPO** pGetGridTopo, bool* pSliEnabled)
 {
 	unsigned char* pData = NULL;
 	DisplayManager_State result = DisplayManager_State::DM_OK;	
 
 	if (!ReadFromFile(pFilePath, &pData))return DisplayManager_State::DM_READ_FILE_ERROR;
-	result = ReadDataToSetup(pData, nPathInfoCount, pGetPathInfo, pGridCount, pGetGridTopo);
+	result = ReadDataToSetup(pData, nPathInfoCount, pGetPathInfo, pGridCount, pGetGridTopo, pSliEnabled);
 
 	return result;
 }
@@ -1665,4 +1722,80 @@ bool DisplayManager::ReadFromFile(const char* pFilePath, unsigned char** data)
 		return true;
 	}
 	return false;
+}
+
+DisplayManager_State DisplayManager::CreateDirect3dDevice()
+{
+	DisplayManager_State result = DisplayManager_State::DM_OK;
+	d3dHWnd = CreateWindowA("d3d9_nvapi_get_sli_State", "d3d9_nvapi_sli_state", WS_OVERLAPPEDWINDOW,
+		0, 0, 640, 480, NULL, NULL, NULL, NULL);
+
+	d3d = Direct3DCreate9(D3D_SDK_VERSION);    // create the Direct3D interface
+
+	D3DPRESENT_PARAMETERS d3dpp;    // create a struct to hold various device information
+
+	ZeroMemory(&d3dpp, sizeof(d3dpp));    // clear out the struct for use
+	d3dpp.Windowed = TRUE;    // program windowed, not fullscreen
+	d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;    // discard old frames
+	d3dpp.hDeviceWindow = d3dHWnd;    // set the window to be used by Direct3D
+	d3dpp.BackBufferWidth = 640;
+	d3dpp.BackBufferHeight = 480;
+	d3dpp.BackBufferFormat = D3DFMT_A8R8G8B8;	
+	d3dpp.EnableAutoDepthStencil = FALSE;
+								   // create a device class using this information and information from the d3dpp stuct
+	d3d->CreateDevice(D3DADAPTER_DEFAULT,
+		D3DDEVTYPE_HAL,
+		d3dHWnd,
+		D3DCREATE_HARDWARE_VERTEXPROCESSING,
+		&d3dpp,
+		&d3ddev);
+
+	if (d3ddev == NULL)
+	{
+		result = DisplayManager_State::DM_SLI_D3DEVICE_ERROR;
+	}
+	return result;
+}
+
+void DisplayManager::DestroyDirect3dDevice()
+{
+	if(d3ddev != NULL)
+		d3ddev->Release();    // close and release the 3D device
+	if (d3d != NULL)
+		d3d->Release();    // close and release Direct3D
+	if (d3dHWnd != NULL)
+		DestroyWindow(d3dHWnd);
+
+	d3ddev = NULL;
+	d3d = NULL;
+	d3dHWnd = NULL;
+}
+
+DisplayManager_State DisplayManager::Get_SLI_State()
+{
+	DisplayManager_State result = DisplayManager_State::DM_ERROR;
+	NV_GET_CURRENT_SLI_STATE sli_state;
+	NvAPI_Status status;
+
+	if (physicalGpuCount > 1)
+	{
+		if (CreateDirect3dDevice() == DisplayManager_State::DM_OK)
+		{
+			memset(&sli_state, 0, sizeof(sli_state));
+			sli_state.version = NV_GET_CURRENT_SLI_STATE_VER;
+
+			status = NvAPI_D3D_GetCurrentSLIState((IUnknown*)d3ddev, &sli_state);
+
+			if (status == NVAPI_OK)
+				result = DisplayManager_State::DM_SLI_ENABLED;
+			else
+				result = DisplayManager_State::DM_SLI_DISABLED;
+
+			DestroyDirect3dDevice();
+		}
+	}
+	else
+		result = DisplayManager_State::DM_SLI_DISABLED;
+
+	return result;
 }

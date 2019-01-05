@@ -42,7 +42,7 @@ namespace Display_Manager
 		void ApplyWindowPositions();
 		//Minimize Windows
 		void MinimizeAllWindows();		
-
+		
 	private:
 		DisplayManager_State state;
 		DisplayManager *displayManager = new DisplayManager();

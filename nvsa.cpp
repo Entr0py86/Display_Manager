@@ -159,5 +159,5 @@ namespace Display_Manager
 			}
 		}
 		return surroundEnabled;
-	}
+	}	
 }
